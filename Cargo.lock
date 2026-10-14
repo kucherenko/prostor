@@ -692,16 +692,19 @@ dependencies = [
 name = "prostor-server"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "axum",
  "futures-util",
  "http-body-util",
  "percent-encoding",
+ "prostor-model",
  "prostor-protocol",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+ "tokio-util",
  "tower",
  "tower-http",
  "tracing",
@@ -1209,6 +1212,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]
