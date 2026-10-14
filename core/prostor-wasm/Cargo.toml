@@ -1,0 +1,33 @@
+[package]
+name = "prostor-wasm"
+description = "wasm-bindgen facade over the prostor core for the browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+prostor-model = { workspace = true }
+prostor-engine = { workspace = true }
+prostor-protocol = { workspace = true }
+serde = { workspace = true }
+wasm-bindgen = { workspace = true }
+js-sys = "0.3"
+serde-wasm-bindgen = { workspace = true }
+console_error_panic_hook = { workspace = true, optional = true }
+
+[dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Os"]
+
+[package.metadata.wasm-pack.profile.wasm-release]
+wasm-opt = ["-Os"]

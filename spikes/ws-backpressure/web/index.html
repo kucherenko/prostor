@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebSocket ingest backpressure spike</title>
+    <style>
+      body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; color: #222; background: #fafafa; }
+      pre { background: #fff; border: 1px solid #ddd; padding: 8px; overflow: auto; max-height: 70vh; }
+      code { background: #eee; padding: 0 3px; }
+      .row { margin: 6px 0; }
+      #status { font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>WebSocket ingest backpressure spike</h1>
+    <p>
+      Sends synthetic frames at a target bitrate over a binary WebSocket and records
+      <code>bufferedAmount</code>, server-side throughput and one-way latency. Configure with
+      query parameters, e.g. <code>?bitrate=6000000&amp;rate_bps=4000000&amp;policy=drop-delta</code>.
+      The run starts automatically; results land on <code>window.__results</code>.
+    </p>
+    <div class="row">Config: <code id="config"></code></div>
+    <div class="row">Status: <span id="status">starting</span></div>
+    <div class="row">Live: <span id="live"></span></div>
+    <pre id="out"></pre>
+    <script type="module" src="./sender.js"></script>
+  </body>
+</html>

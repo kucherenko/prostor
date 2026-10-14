@@ -1,0 +1,13 @@
+{
+  "name": "ws-backpressure-spike",
+  "private": true,
+  "type": "module",
+  "description": "Browser page, scenario runner and Node blast client for the WebSocket ingest backpressure spike",
+  "scripts": {
+    "run": "node run.mjs"
+  },
+  "dependencies": {
+    "puppeteer-core": "^25.14.0",
+    "ws": "^8.18.0"
+  }
+}

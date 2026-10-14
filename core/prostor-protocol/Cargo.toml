@@ -1,0 +1,24 @@
+[package]
+name = "prostor-protocol"
+description = "prostor wire formats: FLV muxer and RTMP client, sans-IO, shared by browser (wasm) and server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Both compile for wasm32: `bytes` is no_std, `subtle` is pure Rust.
+bytes = "1"
+subtle = "2"
+
+# The RTMP session is only needed natively (the browser never speaks RTMP) and
+# rml_rtmp reads the system clock, so it stays out of the wasm build entirely.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rml_rtmp = "0.8"
+
+[dev-dependencies]
+sha2 = "0.11"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = { workspace = true }

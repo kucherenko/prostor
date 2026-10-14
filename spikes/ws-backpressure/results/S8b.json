@@ -1,0 +1,122 @@
+{
+ "scenario": "S8b",
+ "run": 1,
+ "desc": "ceiling: four Node ws clients blasting 1 GB each",
+ "config": {
+  "clients": 4,
+  "bytes": 1000000000
+ },
+ "serverArgs": [],
+ "idle": {
+  "waitedMs": 83,
+  "loadavg1": 13.73291015625,
+  "maxLoad": 20,
+  "busy": [],
+  "flagged": false
+ },
+ "sockinfo": {
+  "listener_so_rcvbuf": 131072,
+  "listener_so_sndbuf": 131072
+ },
+ "startedAt": "2026-10-14T17:25:31.958Z",
+ "clients": [
+  {
+   "url": "ws://127.0.0.1:9471/ws/ingest?id=s8b-0",
+   "sentBytes": 1000000000,
+   "frames": 40000,
+   "ms": 1972,
+   "sendMbitPerSecond": 4056
+  },
+  {
+   "url": "ws://127.0.0.1:9471/ws/ingest?id=s8b-1",
+   "sentBytes": 1000000000,
+   "frames": 40000,
+   "ms": 1916,
+   "sendMbitPerSecond": 4175
+  },
+  {
+   "url": "ws://127.0.0.1:9471/ws/ingest?id=s8b-2",
+   "sentBytes": 1000000000,
+   "frames": 40000,
+   "ms": 1980,
+   "sendMbitPerSecond": 4041
+  },
+  {
+   "url": "ws://127.0.0.1:9471/ws/ingest?id=s8b-3",
+   "sentBytes": 1000000000,
+   "frames": 40000,
+   "ms": 1943,
+   "sendMbitPerSecond": 4117
+  }
+ ],
+ "server": [
+  {
+   "id": "s8b-0",
+   "bytes": 1000000000,
+   "duration_ms": 1965.252917,
+   "mean_bits_per_second": 4070722872.7649817,
+   "latency_ms": {
+    "count": 40000,
+    "mean": 0.68963975,
+    "p50": 0.6359863,
+    "p95": 1.2089844,
+    "max": 10.204834
+   },
+   "frames": 40000
+  },
+  {
+   "id": "s8b-1",
+   "bytes": 1000000000,
+   "duration_ms": 1915.009875,
+   "mean_bits_per_second": 4177524149.8428307,
+   "latency_ms": {
+    "count": 40000,
+    "mean": 0.67288244,
+    "p50": 0.6359863,
+    "p95": 1.2280273,
+    "max": 7.8911133
+   },
+   "frames": 40000
+  },
+  {
+   "id": "s8b-2",
+   "bytes": 1000000000,
+   "duration_ms": 1976.982875,
+   "mean_bits_per_second": 4046570206.12786,
+   "latency_ms": {
+    "count": 40000,
+    "mean": 0.6784019,
+    "p50": 0.6340332,
+    "p95": 1.2180176,
+    "max": 7.651123
+   },
+   "frames": 40000
+  },
+  {
+   "id": "s8b-3",
+   "bytes": 1000000000,
+   "duration_ms": 1941.299416,
+   "mean_bits_per_second": 4120951118.650107,
+   "latency_ms": {
+    "count": 40000,
+    "mean": 0.67314386,
+    "p50": 0.63623047,
+    "p95": 1.1821289,
+    "max": 7.290039
+   },
+   "frames": 40000
+  }
+ ],
+ "aggregate": {
+  "bytes": 4000000000,
+  "wallMs": 2113.2591660000035,
+  "receiveMbitPerSecond": 15142.48726083602
+ },
+ "cpu": {
+  "server": {
+   "meanPercent": 113,
+   "maxPercent": 153,
+   "samples": 6
+  }
+ }
+}

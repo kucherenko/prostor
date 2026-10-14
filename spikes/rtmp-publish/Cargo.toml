@@ -1,0 +1,12 @@
+[package]
+name = "rtmp-publish"
+description = "Spike (b): publish an FLV file over RTMP through prostor-protocol (rml_rtmp)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+prostor-protocol = { workspace = true }
+tokio = { workspace = true, features = ["time", "io-util"] }

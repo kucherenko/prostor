@@ -1,0 +1,16 @@
+services:
+  prostor:
+    image: prostor
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Shared producer secret; required. Start with: PROSTOR_SECRET=... docker compose up
+      PROSTOR_SECRET: ${PROSTOR_SECRET:?set PROSTOR_SECRET in the environment}
+      PROSTOR_LOG: ${PROSTOR_LOG:-info}
+    volumes:
+      - recordings:/recordings
+    restart: unless-stopped
+
+volumes:
+  recordings:

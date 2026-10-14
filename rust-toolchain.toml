@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned: clippy runs with `-D warnings`, so a floating stable would break CI on
+# every new lint. Bump deliberately.
+channel = "1.93.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

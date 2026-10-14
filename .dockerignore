@@ -1,0 +1,14 @@
+.git
+.github
+.atl
+docs
+target
+recordings
+web/node_modules
+web/build
+web/.svelte-kit
+web/src/lib/wasm/pkg
+**/.DS_Store
+**/*.log
+.env
+.env.*

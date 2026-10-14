@@ -1,0 +1,997 @@
+{
+ "meta": {
+  "label": "smoke",
+  "headed": false,
+  "gpuFlags": false,
+  "chromeVersion": "Chrome/155.0.8059.40",
+  "chromePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "launchArgs": [
+   "--use-fake-device-for-media-stream",
+   "--use-fake-ui-for-media-stream",
+   "--autoplay-policy=no-user-gesture-required",
+   "--no-first-run",
+   "--no-default-browser-check",
+   "--disable-extensions",
+   "--window-size=1280,900"
+  ],
+  "os": "macOS 26.6.2",
+  "cpu": "Apple M1 Pro",
+  "cores": 10,
+  "idleWait": {
+   "idle": null,
+   "waitedMs": 0,
+   "loadAvg": [
+    5.62,
+    7.34,
+    13.87
+   ]
+  },
+  "loadAvgBefore": [
+   5.41,
+   7.26,
+   13.81
+  ],
+  "loadAvgAfter": [
+   5.47,
+   7.16,
+   13.62
+  ],
+  "totalMs": 24099,
+  "date": "2026-10-14T16:26:59.357Z"
+ },
+ "gpu": [
+  "=======================*   Canvas: Hardware accelerated*   Direct Rendering Display Compositor: Disabled*   Compositing: Hardware accelerated*   Multiple Raster Threads: Enabled*   OpenGL: Enabled*   Rasterization: Hardware accelerated*   Raw Draw: Disabled*   Skia Graphite: Enabled*   TreesInViz: Disabled*   Video Decode: Hardware accelerated*   Video Encode: Hardware accelerated*   WebGL: Hardware accelerated*   WebGPU: Hardware accelerated*   WebNN: Disabled",
+  "===================Data exported              :2026-10-14T16:26:33.675ZChrome version             :Chrome/155.0.8059.40Operating system           :Mac OS X 26.6.2Software rendering list URL:https://chromium.googlesource.com/chromium/src/+/cfaadc5a132d78e1828635aa8405a499f3e14864/gpu/config/software_rendering_list.jsonDriver bug list URL        :https://chromium.googlesource.com/chromium/src/+/cfaadc5a132d78e1828635aa8405a499f3e14864/gpu/config/gpu_driver_bug_list.jsonANGLE commit id            :170484eea03a2D graphics backend        :Skia/155 29ed1e87a0a50f3d8347e988842d9d59e7573efaCommand Line               :/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --allow-pre-commit-input --disable-background-networking --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-breakpad --disable-client-side-phishing-detection --disable-component-extensions-with-background-pages --disable-crash-reporter --disable-default-apps --disable-dev-shm-usage --disable-hang-monitor --disable-infobars --disable-ipc-flooding-protection --disable-popup-blocking --disable-prompt-on-repost --disable-renderer-backgrounding --disable-search-engine-choice-screen --disable-sync --enable-automation --export-tagged-pdf --force-color-profile=srgb --generate-pdf-document-outline --metrics-recording-only --no-first-run --password-store=basic --use-mock-keychain --disable-features=Translate,AcceptCHFrame,MediaRouter,OptimizationHints,WebUIReloadButton,WebUIOmniboxPopup,WebUIOmniboxAimPopup,ProcessPerSiteUpToMainFrameThreshold,IsolateSandboxedIframes --enable-features=PdfOopif --headless=new --hide-scrollbars --mute-audio --disable-extensions --use-fake-device-for-media-stream --use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required --no-first-run --no-default-browser-check --disable-extensions --window-size=1280,900 --remote-debugging-port=0 --user-data-dir=/var/folders/38/9m750_w54w1b7hlj0l2bg5pm0000gn/T/puppeteer_dev_chrome_profile-mMj8Zh --noerrdialogs --flag-switches-begin --flag-switches-end about:blank",
+  "==================Initialization time             :71In-process GPU                  :falseSkia Backend                    :GraphiteDawnMetalPassthrough Command Decoder     :trueSandboxed                       :trueGPU0                            :VENDOR= 0x106b [Google Inc. (Apple)], DEVICE=0x0000 [ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Version 26.6.2 (Build 25G83))], DRIVER_VENDOR=Apple, DRIVER_VERSION=26.6.2 *ACTIVE*Optimus                         :falseAMD switchable                  :falsePixel shader version            :3.00Vertex shader version           :3.00Max. MSAA samples               :4Machine model name              :MacBookProMachine model version           :18.1GL implementation parts         :(gl=egl-angle,angle=metal)Display type                    :ANGLE_METALGL_VENDOR                       :Google Inc. (Apple)GL_RENDERER                     :ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Version 26.6.2 (Build 25G83))GL_VERSION                      :OpenGL ES 3.0 (ANGLE 2.1.28853 git hash: 170484eea03a)GL_EXTENSIONS                   :GL_AMD_performance_monitor GL_ANGLE_base_vertex_base_instance_shader_builtin GL_ANGLE_blob_cache GL_ANGLE_client_arrays GL_ANGLE_clip_cull_distance GL_ANGLE_compressed_texture_etc GL_ANGLE_depth_texture GL_ANGLE_framebuffer_blit GL_ANGLE_framebuffer_multisample GL_ANGLE_get_serialized_context_string GL_ANGLE_get_tex_level_parameter GL_ANGLE_instanced_arrays GL_ANGLE_memory_size GL_ANGLE_pack_reverse_row_order GL_ANGLE_polygon_mode GL_ANGLE_program_binary_readiness_query GL_ANGLE_program_cache_control GL_ANGLE_provoking_vertex GL_ANGLE_renderability_validation GL_ANGLE_request_extension GL_ANGLE_rgbx_internal_format GL_ANGLE_robust_client_memory GL_ANGLE_shader_pixel_local_storage GL_ANGLE_shader_pixel_local_storage_coherent GL_ANGLE_stencil_texturing GL_ANGLE_texture_compression_dxt3 GL_ANGLE_texture_compression_dxt5 GL_ANGLE_texture_multisample GL_ANGLE_translated_shader_source GL_APPLE_clip_distance GL_ARM_rgba8 GL_CHROMIUM_bind_generates_resource GL_CHROMIUM_bind_uniform_location GL_CHROMIUM_copy_texture GL_CHROMIUM_lose_context GL_EXT_base_instance GL_EXT_blend_func_extended GL_EXT_blend_minmax GL_EXT_clip_control GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float GL_EXT_compressed_ETC1_RGB8_sub_texture GL_EXT_conservative_depth GL_EXT_debug_label GL_EXT_debug_marker GL_EXT_depth_clamp GL_EXT_discard_framebuffer GL_EXT_disjoint_timer_query GL_EXT_draw_buffers GL_EXT_draw_buffers_indexed GL_EXT_draw_elements_base_vertex GL_EXT_float_blend GL_EXT_frag_depth GL_EXT_instanced_arrays GL_EXT_map_buffer_range GL_EXT_multisampled_render_to_texture GL_EXT_occlusion_query_boolean GL_EXT_polygon_offset_clamp GL_EXT_pvrtc_sRGB GL_EXT_read_format_bgra GL_EXT_render_snorm GL_EXT_robustness GL_EXT_sRGB GL_EXT_shader_texture_lod GL_EXT_texture_compression_bptc GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_rgtc GL_EXT_texture_compression_s3tc_srgb GL_EXT_texture_filter_anisotropic GL_EXT_texture_format_BGRA8888 GL_EXT_texture_mirror_clamp_to_edge GL_EXT_texture_norm16 GL_EXT_texture_rg GL_EXT_texture_sRGB_R8 GL_EXT_texture_sRGB_RG8 GL_EXT_texture_shadow_lod GL_EXT_texture_storage GL_IMG_texture_compression_pvrtc GL_KHR_debug GL_KHR_parallel_shader_compile GL_KHR_robustness GL_KHR_texture_compression_astc_hdr GL_KHR_texture_compression_astc_ldr GL_KHR_texture_compression_astc_sliced_3d GL_MESA_framebuffer_flip_y GL_NV_fence GL_NV_framebuffer_blit GL_NV_pixel_buffer_object GL_NV_shader_noperspective_interpolation GL_OES_EGL_image GL_OES_EGL_sync GL_OES_compressed_ETC1_RGB8_texture GL_OES_depth24 GL_OES_depth32 GL_OES_depth_texture GL_OES_draw_buffers_indexed GL_OES_draw_elements_base_vertex GL_OES_element_index_uint GL_OES_fbo_render_mipmap GL_OES_get_program_binary GL_OES_mapbuffer GL_OES_packed_depth_stencil GL_OES_required_internalformat GL_OES_rgb8_rgba8 GL_OES_sample_variables GL_OES_shader_multisample_interpolation GL_OES_standard_derivatives GL_OES_surfaceless_context GL_OES_texture_3D GL_OES_texture_float GL_OES_texture_float_linear GL_OES_texture_half_float GL_OES_texture_half_float_linear GL_OES_texture_npot GL_OES_texture_stencil8 GL_OES_vertex_array_object GL_QCOM_render_shared_exponentDisabled Extensions             :GL_KHR_blend_equation_advanced GL_KHR_blend_equation_advanced_coherentDisabled WebGL Extensions       :Window system binding vendor    :Window system binding version   :Window system binding extensions:Direct rendering version        :unknownReset notification strategy     :0x8252GPU process crash count         :0",
+  "======================*   disable_2d_canvas_auto_flush*   enable_webgl_timer_query_extensions*   disabled_extension_GL_KHR_blend_equation_advanced*   disabled_extension_GL_KHR_blend_equation_advanced_coherent",
+  "442791440(http://crbug.com/442791440), 475935650(http://crbug.com/475935650)    Disabled Features: webgpu_on_vk_via_gl_interop",
+  "*   Expose WebGL's disjoint_timer_query extensions on platforms with site isolation:",
+  "808744(http://crbug.com/808744), 870491(http://crbug.com/870491)    Applied Workarounds: enable_webgl_timer_query_extensions",
+  "ANGLE Features",
+  "*   allowExtensionDisableAfterNonPpTokens (Frontend features): Disabled",
+  "*   alwaysEnableEmulatedMultidrawExtensions (Frontend workarounds): Disabled",
+  "*   alwaysRunLinkSubJobsThreaded (Frontend features): Disabled",
+  "*   cacheCompiledShader (Frontend features): Disabled",
+  "*   clipCullDistanceBrokenWithPassthroughShaders (Frontend features): Disabled",
+  "*   compressProgramBinaryBlob (Frontend features): Disabled",
+  "*   disableAnisotropicFiltering (Frontend workarounds): Disabled",
+  "*   disableProgramBinary (Frontend features): Disabled",
+  "*   disableProgramCaching (Frontend features): Disabled",
+  "*   disableProgramCachingForTransformFeedback (Frontend workarounds): Disabled",
+  "*   dumpShaderSource (Frontend features): Disabled",
+  "*   dumpTranslatedShaders (Frontend features): Disabled",
+  "*   enableCaptureLimits (Frontend features): Disabled",
+  "*   enableProgramBinaryForCapture (Frontend features): Disabled",
+  "*   enableShaderSubstitution (Frontend workarounds): Disabled",
+  "*   enableTranslatedShaderSubstitution (Frontend workarounds): Disabled",
+  "*   forceDebugContexts (Frontend features): Disabled",
+  "*   forceDepthAttachmentInitOnClear (Frontend workarounds): Disabled",
+  "*   forceFlushAfterDrawcallUsingShadowmap (Frontend workarounds): Disabled",
+  "*   forceGlErrorChecking (Frontend features): Disabled",
+  "*   forceInitShaderVariables (Frontend features): Disabled",
+  "*   forceMinimumMaxVertexAttributes (Frontend features): Disabled",
+  "*   forcePassthroughShaders (Frontend features): Disabled",
+  "*   forceRobustResourceInit (Frontend features): Disabled",
+  "*   limitMaxBufferBytesTo1MB (Frontend features): Disabled",
+  "*   limitMaxTextureBytesTo1MB (Frontend features): Disabled",
+  "*   noperspectiveInterpolationBrokenWithPassthroughShaders (Frontend features): Disabled",
+  "*   singleThreadedTextureDecompression (Frontend workarounds): Disabled",
+  "*   uncurrentEglSurfaceUponSurfaceDestroy (Frontend workarounds): Disabled",
+  "*   useIr (Frontend features): Disabled",
+  "*   allocateNonZeroTextures (Metal features): Disabled",
+  "*   allowBufferReadWrite (Metal features): Disabled"
+ ],
+ "cpu": {
+  "intervalMs": 1000,
+  "phases": {
+   "video:worker-hw-paced": {
+    "samples": 6,
+    "meanPct": 34,
+    "maxPct": 68,
+    "meanRssMb": 867
+   },
+   "camera": {
+    "samples": 16,
+    "meanPct": 8,
+    "maxPct": 34,
+    "meanRssMb": 917
+   },
+   "between": {
+    "samples": 1,
+    "meanPct": 1,
+    "maxPct": 1,
+    "meanRssMb": 879
+   }
+  }
+ },
+ "results": {
+  "meta": {
+   "startedAt": "2026-10-14T16:26:35.276Z",
+   "href": "http://127.0.0.1:9472/index.html?auto=1&phases=caps%2Cvideo%2Caudio%2Cclock%2Ccamera&frames=60&seconds=2&where=worker&hw=hw&modes=paced",
+   "phases": [
+    "caps",
+    "video",
+    "audio",
+    "clock",
+    "camera"
+   ],
+   "frames": 60,
+   "seconds": 2,
+   "finishedAt": "2026-10-14T16:26:57.392Z"
+  },
+  "env": {
+   "window": {
+    "isWorker": false,
+    "VideoEncoder": "function",
+    "VideoDecoder": "function",
+    "AudioEncoder": "function",
+    "VideoFrame": "function",
+    "AudioData": "function",
+    "OffscreenCanvas": "function",
+    "MediaStreamTrackProcessor": "function",
+    "MediaStreamTrackGenerator": "function",
+    "VideoTrackGenerator": "undefined",
+    "WebSocketStream": "function",
+    "WebTransport": "function",
+    "navigatorGpu": "object",
+    "hardwareConcurrency": 10,
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+   },
+   "worker": {
+    "isWorker": true,
+    "VideoEncoder": "function",
+    "VideoDecoder": "function",
+    "AudioEncoder": "function",
+    "VideoFrame": "function",
+    "AudioData": "function",
+    "OffscreenCanvas": "function",
+    "MediaStreamTrackProcessor": "undefined",
+    "MediaStreamTrackGenerator": "undefined",
+    "VideoTrackGenerator": "undefined",
+    "WebSocketStream": "function",
+    "WebTransport": "function",
+    "navigatorGpu": "object",
+    "hardwareConcurrency": 10,
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36"
+   }
+  },
+  "caps": {
+   "video": [
+    {
+     "codec": "avc1.42001f",
+     "name": "baseline 3.1",
+     "hw": "no-preference",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": false,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.42001f",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.42001f",
+     "name": "baseline 3.1",
+     "hw": "no-preference",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": false,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.42001f",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.42001f",
+     "name": "baseline 3.1",
+     "hw": "prefer-hardware",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": false,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.42001f",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-hardware",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.42001f",
+     "name": "baseline 3.1",
+     "hw": "prefer-hardware",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": false,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.42001f",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-hardware",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.42001f",
+     "name": "baseline 3.1",
+     "hw": "prefer-software",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": false,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.42001f",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-software",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.42001f",
+     "name": "baseline 3.1",
+     "hw": "prefer-software",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": false,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.42001f",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-software",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.4d0028",
+     "name": "main 4.0",
+     "hw": "no-preference",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.4d0028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.4d0028",
+     "name": "main 4.0",
+     "hw": "no-preference",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.4d0028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.4d0028",
+     "name": "main 4.0",
+     "hw": "prefer-hardware",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.4d0028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-hardware",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.4d0028",
+     "name": "main 4.0",
+     "hw": "prefer-hardware",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.4d0028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-hardware",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.4d0028",
+     "name": "main 4.0",
+     "hw": "prefer-software",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.4d0028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-software",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.4d0028",
+     "name": "main 4.0",
+     "hw": "prefer-software",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.4d0028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-software",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.640028",
+     "name": "high 4.0",
+     "hw": "no-preference",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.640028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.640028",
+     "name": "high 4.0",
+     "hw": "no-preference",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.640028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.640028",
+     "name": "high 4.0",
+     "hw": "prefer-hardware",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.640028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-hardware",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.640028",
+     "name": "high 4.0",
+     "hw": "prefer-hardware",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.640028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-hardware",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.640028",
+     "name": "high 4.0",
+     "hw": "prefer-software",
+     "bitrateMode": "constant",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.640028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-software",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.640028",
+     "name": "high 4.0",
+     "hw": "prefer-software",
+     "bitrateMode": "variable",
+     "format": "avc",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "avc"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "avc1.640028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "prefer-software",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "avc1.4d0028",
+     "name": "main 4.0 (annexb)",
+     "hw": "no-preference",
+     "bitrateMode": "constant",
+     "format": "annexb",
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "avc": {
+       "format": "annexb"
+      },
+      "bitrate": 6000000,
+      "bitrateMode": "constant",
+      "codec": "avc1.4d0028",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "vp09.00.40.08",
+     "name": "vp09.00.40.08",
+     "hw": "no-preference",
+     "bitrateMode": null,
+     "format": null,
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "vp09.00.40.08",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "av01.0.08M.08",
+     "name": "av01.0.08M.08",
+     "hw": "no-preference",
+     "bitrateMode": null,
+     "format": null,
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "av01.0.08M.08",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    },
+    {
+     "codec": "hvc1.1.6.L120.B0",
+     "name": "hvc1.1.6.L120.B0",
+     "hw": "no-preference",
+     "bitrateMode": null,
+     "format": null,
+     "supported": true,
+     "config": {
+      "alpha": "discard",
+      "bitrate": 6000000,
+      "bitrateMode": "variable",
+      "codec": "hvc1.1.6.L120.B0",
+      "contentHint": "",
+      "framerate": 30,
+      "hardwareAcceleration": "no-preference",
+      "height": 1080,
+      "latencyMode": "realtime",
+      "width": 1920
+     }
+    }
+   ],
+   "audio": [
+    {
+     "codec": "mp4a.40.2",
+     "format": "aac",
+     "supported": true,
+     "config": {
+      "aac": {
+       "format": "aac"
+      },
+      "bitrate": 128000,
+      "bitrateMode": "variable",
+      "codec": "mp4a.40.2",
+      "numberOfChannels": 2,
+      "sampleRate": 48000
+     }
+    },
+    {
+     "codec": "mp4a.40.2",
+     "format": "adts",
+     "supported": true,
+     "config": {
+      "aac": {
+       "format": "adts"
+      },
+      "bitrate": 128000,
+      "bitrateMode": "variable",
+      "codec": "mp4a.40.2",
+      "numberOfChannels": 2,
+      "sampleRate": 48000
+     }
+    },
+    {
+     "codec": "mp4a.40.5",
+     "format": null,
+     "supported": true,
+     "config": {
+      "bitrate": 128000,
+      "bitrateMode": "variable",
+      "codec": "mp4a.40.5",
+      "numberOfChannels": 2,
+      "sampleRate": 48000
+     }
+    },
+    {
+     "codec": "opus",
+     "format": null,
+     "supported": true,
+     "config": {
+      "bitrate": 128000,
+      "bitrateMode": "variable",
+      "codec": "opus",
+      "numberOfChannels": 2,
+      "sampleRate": 48000
+     }
+    }
+   ]
+  },
+  "video": {
+   "worker-hw-paced": {
+    "label": "worker-hw-paced",
+    "where": "worker",
+    "hw": "prefer-hardware",
+    "paced": true,
+    "codec": "avc1.4d0028",
+    "frames": 60,
+    "supported": true,
+    "config": {
+     "alpha": "discard",
+     "avc": {
+      "format": "avc"
+     },
+     "bitrate": 6000000,
+     "bitrateMode": "constant",
+     "codec": "avc1.4d0028",
+     "contentHint": "",
+     "framerate": 30,
+     "hardwareAcceleration": "prefer-hardware",
+     "height": 1080,
+     "latencyMode": "realtime",
+     "width": 1920
+    },
+    "framesIn": 60,
+    "framesOut": 60,
+    "wallMs": 6132,
+    "loopMs": 1973.1,
+    "fps": 9.78,
+    "drawMs": {
+     "n": 60,
+     "min": 0.3,
+     "mean": 0.58,
+     "p50": 0.5,
+     "p95": 0.7,
+     "max": 5.1
+    },
+    "encodeLatencyMs": {
+     "n": 60,
+     "min": 4158.9,
+     "mean": 4969.89,
+     "p50": 4987.5,
+     "p95": 5720.2,
+     "max": 5782.8
+    },
+    "queueMax": 60,
+    "queueOver2": 58,
+    "bytes": 1456702,
+    "kbps": 5826.81,
+    "keyframes": {
+     "count": 1,
+     "n": 1,
+     "min": 26108,
+     "mean": 26108,
+     "p50": 26108,
+     "p95": 26108,
+     "max": 26108
+    },
+    "pframes": {
+     "count": 59,
+     "n": 59,
+     "min": 14425,
+     "mean": 24247.36,
+     "p50": 24175,
+     "p95": 27225,
+     "max": 27319
+    },
+    "description": {
+     "arrivedWithFirstChunk": true,
+     "codec": "avc1.4d0028",
+     "codedWidth": 1920,
+     "codedHeight": 1080,
+     "length": 35,
+     "head": "01 4d 00 28 ff e1 00 14 27 4d 00 28"
+    },
+    "decoderConfigCount": 1,
+    "firstOutputTs": 0,
+    "tsMismatches": 0,
+    "outOfOrder": 0,
+    "stillPending": 0,
+    "errors": []
+   }
+  },
+  "audio": {
+   "aac": {
+    "label": "aac",
+    "codec": "mp4a.40.2",
+    "format": "aac",
+    "seconds": 2,
+    "frameSize": 1024,
+    "supported": true,
+    "config": {
+     "aac": {
+      "format": "aac"
+     },
+     "bitrate": 128000,
+     "bitrateMode": "variable",
+     "codec": "mp4a.40.2",
+     "numberOfChannels": 2,
+     "sampleRate": 48000
+    },
+    "chunks": 97,
+    "inputs": 94,
+    "wallMs": 59.4,
+    "bytes": 7133,
+    "kbps": 28.53,
+    "chunkBytes": {
+     "n": 97,
+     "min": 6,
+     "mean": 73.54,
+     "p50": 72,
+     "p95": 87,
+     "max": 181
+    },
+    "durationsUs": {
+     "21333": 65,
+     "21334": 32
+    },
+    "description": {
+     "arrivedWithFirstChunk": true,
+     "codec": "mp4a.40.2",
+     "sampleRate": 48000,
+     "numberOfChannels": 2,
+     "length": 2,
+     "hex": "11 90"
+    },
+    "decoderConfigCount": 1,
+    "firstInputTs": 0,
+    "firstOutputTs": 0,
+    "firstOutputTimestamps": [
+     0,
+     21333,
+     42666,
+     64000
+    ],
+    "lastOutputTs": 2048000,
+    "endDriftUs": 69334,
+    "outputTimestampsPreserved": 63,
+    "monotonic": true,
+    "errors": []
+   },
+   "opus": {
+    "label": "opus",
+    "codec": "opus",
+    "format": null,
+    "seconds": 2,
+    "frameSize": 1024,
+    "supported": true,
+    "config": {
+     "bitrate": 128000,
+     "bitrateMode": "variable",
+     "codec": "opus",
+     "numberOfChannels": 2,
+     "sampleRate": 48000
+    },
+    "chunks": 101,
+    "inputs": 94,
+    "wallMs": 18.6,
+    "bytes": 32741,
+    "kbps": 130.96,
+    "chunkBytes": {
+     "n": 101,
+     "min": 321,
+     "mean": 324.17,
+     "p50": 321,
+     "p95": 321,
+     "max": 501
+    },
+    "durationsUs": {
+     "20000": 101
+    },
+    "description": {
+     "arrivedWithFirstChunk": true,
+     "codec": "opus",
+     "sampleRate": 48000,
+     "numberOfChannels": 2,
+     "length": 19,
+     "hex": "4f 70 75 73 48 65 61 64 01 02 38 01 80 bb 00 00 00 00 00"
+    },
+    "decoderConfigCount": 1,
+    "firstInputTs": 0,
+    "firstOutputTs": 0,
+    "firstOutputTimestamps": [
+     0,
+     20000,
+     40000,
+     60000
+    ],
+    "lastOutputTs": 2000000,
+    "endDriftUs": 20000,
+    "outputTimestampsPreserved": 7,
+    "monotonic": true,
+    "errors": []
+   }
+  },
+  "clock": {
+   "originUs": 11494300,
+   "video": {
+    "supported": true,
+    "framesIn": 90,
+    "framesOut": 88,
+    "firstOutputTs": 11494300,
+    "tsMismatches": 0,
+    "preservedExactly": false
+   },
+   "audio": {
+    "supported": true,
+    "chunks": 97,
+    "firstInputTs": 11494300,
+    "firstOutputTimestamps": [
+     11494300,
+     11515633,
+     11536966,
+     11558300
+    ],
+    "preserved": 63,
+    "preservedExactly": false,
+    "endDriftUs": 69334,
+    "durationsUs": {
+     "21333": 65,
+     "21334": 32
+    }
+   }
+  },
+  "camera": {
+   "trackTransfer": {
+    "supported": false,
+    "error": "DataCloneError: Failed to execute 'postMessage' on 'Worker': Value at index 0 does not have a transferable type."
+   },
+   "frameTransfer": {
+    "supported": true,
+    "frameSize": {
+     "width": 1920,
+     "height": 1080
+    },
+    "frames": 300,
+    "framesOut": 300,
+    "wallMs": 14976.9,
+    "fps": 20.03,
+    "transferLatencyMs": {
+     "n": 300,
+     "min": 0,
+     "mean": 0.11,
+     "p50": 0.1,
+     "p95": 0.2,
+     "max": 0.5
+    },
+    "encodeLatencyMs": {
+     "n": 300,
+     "min": 7.1,
+     "mean": 9.21,
+     "p50": 7.7,
+     "p95": 10.2,
+     "max": 171.2
+    },
+    "kbps": 544.8,
+    "errors": [],
+    "postMessageMs": {
+     "n": 300,
+     "min": 0,
+     "mean": 0.05,
+     "p50": 0,
+     "p95": 0.1,
+     "max": 0.6
+    }
+   },
+   "sourceSettings": {
+    "aspectRatio": 1.7777777777777777,
+    "deviceId": "42557f78c1e50436822c4ffafd0ba6bf5ad863709ba2ec8af0162c973a42c431",
+    "exposureMode": "manual",
+    "exposureTime": 50,
+    "focusDistance": 50,
+    "focusMode": "manual",
+    "frameRate": 20,
+    "groupId": "ac28eb5803ee05c6a5c9e3c02eefb2accb052934fd2e95ae8087b001c82c6d3e",
+    "height": 1080,
+    "resizeMode": "none",
+    "width": 1920
+   }
+  },
+  "errors": []
+ }
+}

@@ -1,0 +1,15 @@
+{
+	"extends": "$app/tsconfig",
+	"compilerOptions": {
+		"strict": true,
+		// The wasm-pack output in src/lib/wasm/pkg is generated JS with its own .d.ts; do not type-check it.
+		"checkJs": false,
+		// Mirror the `imports` field of package.json so TypeScript resolves `#lib/...` without extensions.
+		"paths": {
+			"#lib": ["./src/lib/index.ts"],
+			"#lib/*": ["./src/lib/*"]
+		},
+		"types": ["$app/types", "node"]
+	},
+	"include": ["src", "vite.config.ts"]
+}

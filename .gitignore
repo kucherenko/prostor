@@ -1,0 +1,24 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node / web
+node_modules/
+web/build/
+web/.svelte-kit/
+web/src/lib/wasm/pkg/
+web/vite.config.ts.timestamp-*
+
+# Runtime output
+/recordings/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Tooling state
+.atl/
+.DS_Store
+Thumbs.db
+*.log

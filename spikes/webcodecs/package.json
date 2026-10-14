@@ -1,0 +1,13 @@
+{
+  "name": "prostor-spike-webcodecs",
+  "private": true,
+  "type": "module",
+  "description": "Spike (a): WebCodecs H.264 + AAC availability, 1080p30 throughput and CPU in Chromium.",
+  "scripts": {
+    "serve": "node serve.mjs",
+    "run": "node run.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.14.0"
+  }
+}

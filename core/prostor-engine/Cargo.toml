@@ -1,0 +1,11 @@
+[package]
+name = "prostor-engine"
+description = "prostor engine: scene state machine, layout, transitions and mixer decisions (sans-IO)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+prostor-model = { workspace = true }

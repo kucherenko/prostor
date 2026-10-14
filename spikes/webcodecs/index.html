@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>prostor spike: WebCodecs</title>
+    <style>
+      body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #111; color: #eee; }
+      button { font: inherit; padding: 6px 14px; margin-right: 8px; }
+      pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; background: #1b1b1b; padding: 12px; }
+      #status { margin: 12px 0; color: #9fd; }
+    </style>
+  </head>
+  <body>
+    <h1>prostor spike (a): WebCodecs H.264 + AAC</h1>
+    <p>
+      Measures encoder capability, 1080p30 throughput on the main thread and in a Worker,
+      AAC/Opus behaviour, A/V clock preservation and the camera-to-Worker path. Takes about
+      three minutes. Chromium only. Results appear below as JSON; paste them into
+      <code>docs/spikes/</code> when running on another OS.
+    </p>
+    <button id="run">Run</button>
+    <button id="copy">Copy JSON</button>
+    <div id="status">idle</div>
+    <pre id="out"></pre>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
