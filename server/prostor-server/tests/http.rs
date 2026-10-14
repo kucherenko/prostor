@@ -6,7 +6,7 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use prostor_server::{app, config::Config};
+use prostor_server::{app, config::Config, shutdown::Shutdown};
 use tower::ServiceExt;
 
 fn config_with_web_dir(dir: &std::path::Path) -> Config {
@@ -16,6 +16,10 @@ fn config_with_web_dir(dir: &std::path::Path) -> Config {
         recordings_dir: dir.join("recordings"),
         secret: None,
     }
+}
+
+fn router(config: &Config) -> axum::Router {
+    app::router(config, Shutdown::new())
 }
 
 /// A web directory with an app shell, an asset tree and a dotfile.
@@ -51,28 +55,48 @@ async fn get(app: &axum::Router, uri: &str) -> (StatusCode, String, String) {
     )
 }
 
-#[tokio::test]
-async fn healthz_reports_ok_and_versions() {
-    let dir = tempfile::tempdir().unwrap();
-    let app = app::router(&config_with_web_dir(dir.path()));
-
+async fn healthz(app: &axum::Router) -> serde_json::Value {
     let response = app
+        .clone()
         .oneshot(Request::get("/healthz").body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-
     let body = response.into_body().collect().await.unwrap().to_bytes();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["status"], "ok");
+    serde_json::from_slice(&body).unwrap()
+}
+
+#[tokio::test]
+async fn healthz_reports_versions_and_whether_recordings_can_be_written() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_with_web_dir(dir.path());
+    let app = router(&config);
+
+    let json = healthz(&app).await;
+    assert_eq!(
+        json["status"], "degraded",
+        "recordings dir does not exist yet"
+    );
+    assert_eq!(json["recordings_dir_writable"], false);
+    assert_eq!(json["ingest_sessions"], 0);
     assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(json["protocol"], prostor_protocol::crate_version());
+
+    std::fs::create_dir_all(&config.recordings_dir).unwrap();
+    let json = healthz(&app).await;
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["recordings_dir_writable"], true);
+    assert_eq!(
+        std::fs::read_dir(&config.recordings_dir).unwrap().count(),
+        0,
+        "the probe file is removed"
+    );
 }
 
 #[tokio::test]
 async fn serves_static_files_and_falls_back_to_index_for_app_routes() {
     let dir = web_dir();
-    let app = app::router(&config_with_web_dir(dir.path()));
+    let app = router(&config_with_web_dir(dir.path()));
 
     let (status, _, body) = get(&app, "/robots.txt").await;
     assert_eq!((status, body.as_str()), (StatusCode::OK, "User-agent: *\n"));
@@ -96,7 +120,7 @@ async fn serves_static_files_and_falls_back_to_index_for_app_routes() {
 #[tokio::test]
 async fn missing_assets_are_404_not_the_app_shell() {
     let dir = web_dir();
-    let app = app::router(&config_with_web_dir(dir.path()));
+    let app = router(&config_with_web_dir(dir.path()));
     for asset in ["/_app/missing.js", "/favicon.ico", "/studio/x.png"] {
         let (status, _, body) = get(&app, asset).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{asset}");
@@ -107,7 +131,7 @@ async fn missing_assets_are_404_not_the_app_shell() {
 #[tokio::test]
 async fn dotfiles_and_traversal_never_leave_the_web_dir() {
     let dir = web_dir();
-    let app = app::router(&config_with_web_dir(dir.path()));
+    let app = router(&config_with_web_dir(dir.path()));
     let outside = dir.path().join("../outside-marker.txt");
     std::fs::write(&outside, "outside").unwrap();
     let payloads = [
@@ -139,7 +163,7 @@ async fn dotfiles_and_traversal_never_leave_the_web_dir() {
 #[tokio::test]
 async fn bad_room_ids_are_rejected_before_the_upgrade() {
     let dir = web_dir();
-    let app = app::router(&config_with_web_dir(dir.path()));
+    let app = router(&config_with_web_dir(dir.path()));
     for bad in [
         "/ws/ingest/..%2F..%2Fetc%2Fcron.d%2Fx",
         "/ws/room/a%20b",

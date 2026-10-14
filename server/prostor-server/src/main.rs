@@ -1,6 +1,14 @@
 //! `prostor` binary: reads `PROSTOR_*` configuration and serves until SIGINT/SIGTERM.
+//!
+//! The first signal stops the listener and asks every WebSocket session to close
+//! (1001) and finalize its recording; `main` then waits up to
+//! [`shutdown::DRAIN_TIMEOUT`] for them. A second signal exits immediately.
 
-use prostor_server::{app, config::Config};
+use prostor_server::{
+    app,
+    config::Config,
+    shutdown::{DRAIN_TIMEOUT, Shutdown},
+};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -17,18 +25,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listen = %config.listen,
         web_dir = %config.web_dir.display(),
         recordings_dir = %config.recordings_dir.display(),
-        // Nothing is enforced yet (M2 adds producer auth); this only says whether a
-        // secret is configured.
-        auth = if config.secret.is_some() { "configured" } else { "none" },
+        auth = if config.secret.is_some() { "required" } else { "none" },
         "starting prostor"
     );
+    if config.secret.is_none() && !config.listen.ip().is_loopback() {
+        tracing::warn!(
+            "no PROSTOR_SECRET and listening on {}: anyone who can reach the port can \
+             start an ingest session and write recordings",
+            config.listen
+        );
+    }
+    tokio::fs::create_dir_all(&config.recordings_dir)
+        .await
+        .map_err(|e| {
+            format!(
+                "cannot create the recordings directory {}: {e}",
+                config.recordings_dir.display()
+            )
+        })?;
+
+    let shutdown = Shutdown::new();
+    tokio::spawn(watch_signals(shutdown.clone()));
 
     let listener = TcpListener::bind(config.listen).await?;
-    axum::serve(listener, app::router(&config))
-        .with_graceful_shutdown(shutdown_signal())
+    axum::serve(listener, app::router(&config, shutdown.clone()))
+        .with_graceful_shutdown(shutdown.cancelled())
         .await?;
+    tracing::info!(
+        sessions = shutdown.tracked(),
+        "listener stopped; draining sessions"
+    );
+    if !shutdown.wait(DRAIN_TIMEOUT).await {
+        tracing::warn!(
+            sessions = shutdown.tracked(),
+            "sessions still running after {DRAIN_TIMEOUT:?}; exiting anyway"
+        );
+    }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// First signal: graceful shutdown. Second signal: exit now.
+async fn watch_signals(shutdown: Shutdown) {
+    shutdown_signal().await;
+    tracing::info!("shutdown signal received; closing sessions (send again to exit now)");
+    shutdown.cancel();
+    shutdown_signal().await;
+    tracing::warn!("second signal; exiting without draining");
+    std::process::exit(1);
 }
 
 async fn shutdown_signal() {
@@ -53,5 +97,4 @@ async fn shutdown_signal() {
         _ = ctrl_c => {},
         _ = terminate => {},
     }
-    tracing::info!("shutdown signal received");
 }

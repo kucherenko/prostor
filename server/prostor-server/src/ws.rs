@@ -1,21 +1,25 @@
-//! WebSocket endpoints. Both are stubs: the signaling protocol and the FLV
-//! ingest protocol are defined in the Phase 0 plan. What is already real: room ids are
-//! validated, messages are size-limited, idle sockets are closed, and the number of
-//! concurrent sockets is bounded.
+//! WebSocket plumbing shared by the signaling and ingest endpoints, and the signaling
+//! endpoint itself (still a stub: the protocol is defined in the Phase 0 plan, M5).
+//!
+//! What is real for every socket: room ids are validated, messages are size-limited,
+//! silent peers are closed after [`Timeouts::idle`], the server pings every
+//! [`Timeouts::ping`], the number of concurrent sockets is bounded, close handshakes are
+//! completed before the socket is dropped (so peers see the code we chose, not 1006),
+//! and a shutdown closes every socket with 1001.
 
 use std::time::Duration;
 
 use axum::{
     extract::{
         Path, State, WebSocketUpgrade,
-        ws::{CloseFrame, Message, WebSocket},
+        ws::{CloseFrame, Message, Utf8Bytes, WebSocket},
     },
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use tokio::sync::OwnedSemaphorePermit;
+use tokio::{sync::OwnedSemaphorePermit, time::Instant};
 
-use crate::{app::AppState, room::RoomId};
+use crate::{app::AppState, room::RoomId, shutdown::Shutdown};
 
 /// Largest ingest message: one FLV tag. A 1080p keyframe at 6 Mbit/s is ~150 KB.
 pub const INGEST_MAX_MESSAGE: usize = 4 * 1024 * 1024;
@@ -25,10 +29,39 @@ pub const SIGNALING_MAX_MESSAGE: usize = 64 * 1024;
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15);
 /// The server pings this often so a healthy idle peer keeps answering.
 pub const PING_INTERVAL: Duration = Duration::from_secs(10);
-/// Close code for a message over the size limit.
-const CLOSE_TOO_LARGE: u16 = 1009;
-/// Close code for an idle peer (policy violation).
-const CLOSE_IDLE: u16 = 1008;
+/// An ingest peer must send `hello` within this long after connecting.
+pub const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a close handshake may take before the socket is dropped anyway.
+const CLOSE_DRAIN: Duration = Duration::from_secs(2);
+
+/// Close code: normal end of the session.
+pub const CLOSE_NORMAL: u16 = 1000;
+/// Close code: the server is shutting down.
+pub const CLOSE_GOING_AWAY: u16 = 1001;
+/// Close code: policy violation (an idle peer).
+pub const CLOSE_POLICY: u16 = 1008;
+/// Close code: a message over the size limit.
+pub const CLOSE_TOO_LARGE: u16 = 1009;
+/// Close code: a server-side failure.
+pub const CLOSE_INTERNAL: u16 = 1011;
+
+/// Timing of a socket. Tests shorten these; production uses the defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timeouts {
+    pub idle: Duration,
+    pub ping: Duration,
+    pub hello: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Timeouts {
+            idle: IDLE_TIMEOUT,
+            ping: PING_INTERVAL,
+            hello: HELLO_TIMEOUT,
+        }
+    }
+}
 
 /// `GET /ws/room/{id}`: signaling between the producer and the guests of a room.
 /// Stub: echoes text frames back to the sender.
@@ -39,104 +72,126 @@ pub async fn room(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
 ) -> Response {
+    if state.shutdown().is_cancelled() {
+        return shutting_down();
+    }
     let Some(permit) = state.socket_permit() else {
         return too_many_sockets();
     };
+    let shutdown = state.shutdown().clone();
+    let timeouts = state.timeouts();
     ws.max_message_size(SIGNALING_MAX_MESSAGE)
         .max_frame_size(SIGNALING_MAX_MESSAGE)
-        .on_upgrade(move |socket| handle_room(socket, id, permit))
+        .on_upgrade(move |socket| {
+            shutdown
+                .clone()
+                .track(handle_room(socket, id, permit, timeouts, shutdown))
+        })
 }
 
-async fn handle_room(socket: WebSocket, room: RoomId, _permit: OwnedSemaphorePermit) {
+async fn handle_room(
+    socket: WebSocket,
+    room: RoomId,
+    _permit: OwnedSemaphorePermit,
+    timeouts: Timeouts,
+    shutdown: Shutdown,
+) {
     tracing::info!(%room, "signaling peer joined");
-    let mut peer = Peer::new(socket);
-    while let Some(message) = peer.next().await {
-        match message {
-            Message::Text(text) => {
-                if peer.socket.send(Message::Text(text)).await.is_err() {
-                    break;
+    let mut peer = Peer::new(socket, timeouts);
+    loop {
+        tokio::select! {
+            message = peer.next() => match message {
+                Some(Message::Text(text)) => {
+                    if peer.send(Message::Text(text)).await.is_err() {
+                        break;
+                    }
                 }
+                Some(_) => {}
+                None => break,
+            },
+            _ = shutdown.cancelled() => {
+                peer.close(CLOSE_GOING_AWAY, "server shutting down").await;
+                break;
             }
-            Message::Close(_) => break,
-            Message::Binary(_) | Message::Ping(_) | Message::Pong(_) => {}
         }
     }
     tracing::info!(%room, "signaling peer left");
 }
 
-/// `GET /ws/ingest/{room}`: FLV tags from the producer as binary frames.
-/// Stub: counts frames and bytes and logs a summary when the socket closes.
-pub async fn ingest(
-    Path(room): Path<RoomId>,
-    State(state): State<AppState>,
-    ws: WebSocketUpgrade,
-) -> Response {
-    let Some(permit) = state.socket_permit() else {
-        return too_many_sockets();
-    };
-    ws.max_message_size(INGEST_MAX_MESSAGE)
-        .max_frame_size(INGEST_MAX_MESSAGE)
-        .on_upgrade(move |socket| handle_ingest(socket, room, permit))
-}
-
-async fn handle_ingest(socket: WebSocket, room: RoomId, _permit: OwnedSemaphorePermit) {
-    tracing::info!(%room, "ingest started");
-    let (mut frames, mut bytes) = (0u64, 0u64);
-    let mut peer = Peer::new(socket);
-    while let Some(message) = peer.next().await {
-        match message {
-            Message::Binary(data) => {
-                frames += 1;
-                bytes += data.len() as u64;
-            }
-            Message::Close(_) => break,
-            Message::Text(_) | Message::Ping(_) | Message::Pong(_) => {}
-        }
-    }
-    tracing::info!(%room, frames, bytes, "ingest closed");
-}
-
-fn too_many_sockets() -> Response {
+pub(crate) fn too_many_sockets() -> Response {
     (StatusCode::SERVICE_UNAVAILABLE, "too many open sockets").into_response()
 }
 
-/// A socket with the idle timeout and the ping schedule applied.
-struct Peer {
+pub(crate) fn shutting_down() -> Response {
+    (StatusCode::SERVICE_UNAVAILABLE, "shutting down").into_response()
+}
+
+/// A socket with the idle timeout, the ping schedule and a complete close handshake.
+pub(crate) struct Peer {
     socket: WebSocket,
     ping: tokio::time::Interval,
+    timeouts: Timeouts,
+    /// Pushed forward by every received frame only: pings the server sends and ticks of
+    /// the select loop never extend it.
+    idle_deadline: Instant,
+    /// A close frame was sent or received; nothing more is read or written.
+    closed: bool,
 }
 
 impl Peer {
-    fn new(socket: WebSocket) -> Self {
-        let mut ping = tokio::time::interval(PING_INTERVAL);
+    pub(crate) fn new(socket: WebSocket, timeouts: Timeouts) -> Self {
+        let mut ping = tokio::time::interval(timeouts.ping);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         ping.reset();
-        Peer { socket, ping }
+        Peer {
+            socket,
+            ping,
+            timeouts,
+            idle_deadline: Instant::now() + timeouts.idle,
+            closed: false,
+        }
     }
 
-    /// The next message, or `None` when the peer went away, timed out, or sent
-    /// something the socket rejected (logged, and answered with a close frame).
-    async fn next(&mut self) -> Option<Message> {
+    /// The next message, or `None` once the peer closed, went away, timed out, or sent
+    /// something the socket rejected (logged, and answered with a close frame). Close
+    /// frames are consumed here: the handshake is completed before `None` is returned.
+    pub(crate) async fn next(&mut self) -> Option<Message> {
+        if self.closed {
+            return None;
+        }
         loop {
             tokio::select! {
-                received = tokio::time::timeout(IDLE_TIMEOUT, self.socket.recv()) => {
+                received = self.socket.recv() => {
                     return match received {
-                        Ok(Some(Ok(message))) => Some(message),
-                        Ok(Some(Err(error))) => {
+                        Some(Ok(Message::Close(_))) => {
+                            // axum queues the close reply; reading on flushes it.
+                            self.closed = true;
+                            self.drain().await;
+                            None
+                        }
+                        Some(Ok(message)) => {
+                            self.idle_deadline = Instant::now() + self.timeouts.idle;
+                            Some(message)
+                        }
+                        Some(Err(error)) => {
                             tracing::warn!(%error, "websocket error; closing");
                             self.close(CLOSE_TOO_LARGE, "message rejected").await;
                             None
                         }
-                        Ok(None) => None,
-                        Err(_elapsed) => {
-                            tracing::info!("websocket idle for {IDLE_TIMEOUT:?}; closing");
-                            self.close(CLOSE_IDLE, "idle").await;
+                        None => {
+                            self.closed = true;
                             None
                         }
                     };
                 }
+                _ = tokio::time::sleep_until(self.idle_deadline) => {
+                    tracing::info!("websocket idle for {:?}; closing", self.timeouts.idle);
+                    self.close(CLOSE_POLICY, "idle").await;
+                    return None;
+                }
                 _ = self.ping.tick() => {
                     if self.socket.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        self.closed = true;
                         return None;
                     }
                 }
@@ -144,11 +199,34 @@ impl Peer {
         }
     }
 
-    async fn close(&mut self, code: u16, reason: &'static str) {
+    /// Sends a message; an error means the peer is gone.
+    pub(crate) async fn send(&mut self, message: Message) -> Result<(), axum::Error> {
+        if self.closed {
+            return Err(axum::Error::new("socket is closed"));
+        }
+        self.socket.send(message).await
+    }
+
+    /// Sends a close frame and waits (bounded) for the peer's reply, so the frame is
+    /// flushed and the peer sees `code` rather than an abnormal closure.
+    pub(crate) async fn close(&mut self, code: u16, reason: impl Into<Utf8Bytes>) {
+        if self.closed {
+            return;
+        }
+        self.closed = true;
         let frame = CloseFrame {
             code,
             reason: reason.into(),
         };
-        let _ = self.socket.send(Message::Close(Some(frame))).await;
+        if self.socket.send(Message::Close(Some(frame))).await.is_ok() {
+            self.drain().await;
+        }
+    }
+
+    async fn drain(&mut self) {
+        let _ = tokio::time::timeout(CLOSE_DRAIN, async {
+            while let Some(Ok(_)) = self.socket.recv().await {}
+        })
+        .await;
     }
 }

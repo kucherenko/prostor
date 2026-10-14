@@ -4,12 +4,16 @@ Open findings from the fresh-context reviews of 2026-10-14 (second pass, on the 
 the first-pass fixes). Line numbers are approximate. Close items by fixing them in the
 milestone that touches the code, with a regression test each.
 
-## Warnings
+## Closed in M1 (server half)
 
-1. `server/prostor-server/src/ws.rs` `Peer::next`: the idle timeout is rebuilt on every loop
-   turn and the 10 s ping tick wins the select, so silent sockets never time out and 64 of
-   them exhaust `MAX_SOCKETS` (503 for everyone). One deadline per `next()`, reset only by
-   received frames; tests for `IDLE_TIMEOUT` and `MAX_SOCKETS`. (M1 ingest handler.)
+- 1 (idle timeout rebuilt per loop turn): `Peer` keeps one deadline, pushed only by
+  received frames; tests cover a dead peer, a pong-answering peer and `MAX_SOCKETS`.
+- 9 (`IngestClientMessage` `Debug` prints `auth`): hand-written `Debug` with `<redacted>`.
+- 10 (`EgressState` u64 fields export as `bigint`): `#[ts(type = "number")]`.
+- 11 (`Close` dropped before the reply is flushed): `Peer` completes every close
+  handshake, bounded by 2 s; tests assert the code the client sees.
+
+## Warnings
 2. `core/prostor-wasm/src/lib.rs` `FlvMuxer`: methods take `&[u8]`; an `ArrayBuffer` (what
    WebCodecs gives for `decoderConfig.description`) is copied as zero bytes without error,
    producing an undecodable stream. Accept `Uint8Array`/BufferSource and reject empty
@@ -35,13 +39,6 @@ milestone that touches the code, with a regression test each.
 8. `rtmp.rs` `Error` derives `Debug` and wraps `ClientSessionError`; a non-UTF-8 AMF0 string
    from the server prints raw server bytes (possibly the key). Hand-written `Debug` with
    variant names only. (M2.)
-9. `core/prostor-model/src/ingest.rs` `IngestClientMessage` derives `Debug` with
-   `auth: Option<String>`, so `{:?}` prints the producer secret. Redacting wrapper. (M1.)
-10. `ingest.rs` `EgressState`: u64 fields export as `bigint` in ts-rs while serde_json sends
-    numbers. `#[ts(type = "number")]`. (M1.)
-11. `ws.rs` `Message::Close(_) => break` drops the socket before tungstenite flushes the
-    Close reply; clients see 1006. Keep reading until `None` or close explicitly. Likely the
-    real cause of the 1006 in `docs/spikes/0004`. (M1.)
 12. `core/prostor-engine/src/layout.rs` `render_plan` clamps to the program instead of
     scaling from the 1920×1080 authoring space and ignores `crop`; on 1280×720 the sample
     title is invisible. (M3, or M1 if the program size becomes configurable.)
@@ -66,8 +63,11 @@ milestone that touches the code, with a regression test each.
 
 ## Deferred from the first pass
 
-- Graceful shutdown covering WebSockets (in progress on `feat/m1-tracer-bullet`).
-- Secret + Origin enforcement on the WebSocket upgrades (M2, same commit as real ingest).
+- Graceful shutdown covering WebSockets: done in M1 (`shutdown.rs` wired into `main` and
+  both handlers; close 1001, recordings finalized, `DRAIN_TIMEOUT`, exit on the second
+  signal).
+- Secret enforcement: done for the ingest socket in M1 (`hello.auth`). `Origin`
+  allow-list on both upgrades and auth on the signaling socket remain for M2.
 - Connect-time refusal of loopback/link-local/private ranges and connect/handshake
   timeouts in the RTMP egress (M2).
 - A `cargo-fuzz` job for `parse_tag`, `Demuxer`, `amf0::read_value`, `Header::parse`.

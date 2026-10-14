@@ -69,16 +69,19 @@ ingest socket and written to disk by the server as a playable FLV.
       measured and compensated.
 - [ ] `adapters/ingest-ws` (in the Worker): ADR 0003 protocol v1 — `u32` seq + FLV tag per
       message, acks, lag, drop-until-keyframe, bitrate step-down, `end_of_stream`.
-- [ ] Server: ingest handler parses tags with `prostor-protocol`, acks every 100 ms,
+- [x] Server: ingest handler parses tags with `prostor-protocol`, acks every 100 ms,
       `trait Egress` + `FileEgress` (`PROSTOR_RECORDINGS_DIR/<room>-<timestamp>.flv`,
-      FLV header + metadata + sequence headers written by the server).
+      FLV header + metadata + sequence headers written by the server); egress supervisor
+      with bounded queues and drop-until-keyframe; `docs/protocol-ingest.md`; integration
+      tests replay the FLV fixture through a real socket and parse the recording back.
 - [ ] Status bar: fps, dropped frames, encoder queue, active encoder, lag, `bufferedAmount`,
       bitrate.
-- [ ] Graceful shutdown that covers WebSockets (review #7): a `CancellationToken` +
+- [x] Graceful shutdown that covers WebSockets (review #7): a `CancellationToken` +
       `TaskTracker`; handlers send Close 1001 and finalize (flush the recording); a
       deadline after `serve` returns; exit on the second signal.
-- [ ] Until M2 adds producer auth, the ingest socket must not be reachable
-      unauthenticated: bind to `127.0.0.1` or require a token in the first message.
+- [x] Until M2 adds producer auth, the ingest socket must not be reachable
+      unauthenticated: `hello.auth` is checked against `PROSTOR_SECRET` when set; without
+      a secret the server warns unless bound to loopback (the default).
 - Check: 60 s session → `ffprobe` shows H.264 Main + AAC-LC, the file plays in VLC, lag
   stays < 100 ms on loopback, A/V offset measured with a clap.
 

@@ -9,6 +9,8 @@
 
 pub mod app;
 pub mod config;
+pub mod egress;
+pub mod ingest;
 pub mod room;
 pub mod shutdown;
 pub mod ws;
