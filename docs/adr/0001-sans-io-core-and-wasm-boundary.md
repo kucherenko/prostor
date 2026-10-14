@@ -22,6 +22,8 @@ would drift; coupling it to one runtime's I/O would make it untestable and unpor
    It is a facade: it owns the engine instance, accepts commands and returns plain data
    (serde via `serde-wasm-bindgen`) or byte buffers (`Uint8Array`). Native-only
    dependencies (for example an RTMP session library) are feature-gated out of wasm.
+   The RTMP module is the one documented exception to "time is always passed in": the
+   library underneath reads the clock and the RNG itself (ADR 0004).
 4. TypeScript types are generated from `prostor-model` with `ts-rs` into
    `web/src/lib/generated/` and committed; CI fails when they are stale. The model crate
    stays free of wasm dependencies.
