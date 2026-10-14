@@ -50,8 +50,8 @@ of this review.
       room ids, WebSocket size limits and idle timeouts, loopback default bind, SPA
       fallback only for app routes, query strings kept out of logs, `cargo deny`).
 - [x] LICENSE + `license =` fields; first commit.
-- [ ] Push; make CI green (the workflow has never run; `wasm-pack test` on
-      `ubuntu-latest` is the likely first failure).
+- [x] Push to https://github.com/kucherenko/prostor; CI green on the second run (the
+      first failed only on the pnpm setup step reading the wrong `package.json`).
 - [ ] Deferred review items (see also M1/M2): a `cargo-fuzz` job for `parse_tag`,
       `Demuxer`, `amf0::read_value` and `Header::parse`.
 
