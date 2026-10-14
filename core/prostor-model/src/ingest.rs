@@ -20,11 +20,16 @@
 //! `egress_status` every second, the browser sends `end_of_stream`, the server drains,
 //! answers `ended` and closes with code 1000. See `docs/protocol-ingest.md`.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 /// Messages from the browser to the server (text frames).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+///
+/// `Debug` is hand-written: `hello.auth` is the producer secret and prints as
+/// `<redacted>`, so a logged message can never leak it.
+#[derive(Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export)]
 pub enum IngestClientMessage {
@@ -37,6 +42,22 @@ pub enum IngestClientMessage {
     /// Last message of a session: the sequence number of the last media frame sent.
     /// The server drains its egresses, answers [`IngestServerMessage::Ended`] and closes.
     EndOfStream { last_seq: u32 },
+}
+
+impl fmt::Debug for IngestClientMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IngestClientMessage::Hello { auth, stream } => f
+                .debug_struct("Hello")
+                .field("auth", &auth.as_ref().map(|_| "<redacted>"))
+                .field("stream", stream)
+                .finish(),
+            IngestClientMessage::EndOfStream { last_seq } => f
+                .debug_struct("EndOfStream")
+                .field("last_seq", last_seq)
+                .finish(),
+        }
+    }
 }
 
 /// Parameters of the encoded stream, as configured in the browser's encoders.
@@ -141,10 +162,13 @@ pub struct EgressState {
     pub kind: EgressKind,
     pub state: EgressPhase,
     /// Bytes handed to the egress so far.
+    #[ts(type = "number")]
     pub bytes: u64,
     /// Tags handed to the egress so far.
+    #[ts(type = "number")]
     pub tags: u64,
     /// Tags dropped for this egress because its queue was full.
+    #[ts(type = "number")]
     pub dropped: u64,
     /// The newest sequence number the egress has consumed.
     pub last_seq: u32,
@@ -306,6 +330,24 @@ mod tests {
             serde_json::from_str::<IngestClientMessage>(&json).unwrap(),
             hello
         );
+    }
+
+    #[test]
+    fn debug_output_never_contains_the_secret() {
+        let hello = IngestClientMessage::Hello {
+            auth: Some("hunter2".into()),
+            stream: stream(),
+        };
+        for text in [format!("{hello:?}"), format!("{hello:#?}")] {
+            assert!(!text.contains("hunter2"), "{text}");
+            assert!(text.contains("<redacted>"), "{text}");
+            assert!(text.contains("avc1.4d0028"), "{text}");
+        }
+        let without = IngestClientMessage::Hello {
+            auth: None,
+            stream: stream(),
+        };
+        assert!(format!("{without:?}").contains("auth: None"));
     }
 
     #[test]

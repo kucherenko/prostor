@@ -13,15 +13,15 @@ id: string, kind: EgressKind, state: EgressPhase,
 /**
  * Bytes handed to the egress so far.
  */
-bytes: bigint, 
+bytes: number, 
 /**
  * Tags handed to the egress so far.
  */
-tags: bigint, 
+tags: number, 
 /**
  * Tags dropped for this egress because its queue was full.
  */
-dropped: bigint, 
+dropped: number, 
 /**
  * The newest sequence number the egress has consumed.
  */

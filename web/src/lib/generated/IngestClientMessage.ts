@@ -3,5 +3,8 @@ import type { StreamInfo } from "./StreamInfo";
 
 /**
  * Messages from the browser to the server (text frames).
+ *
+ * `Debug` is hand-written: `hello.auth` is the producer secret and prints as
+ * `<redacted>`, so a logged message can never leak it.
  */
 export type IngestClientMessage = { "type": "hello", auth: string | null, stream: StreamInfo, } | { "type": "end_of_stream", last_seq: number, };
