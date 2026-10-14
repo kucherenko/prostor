@@ -7,6 +7,8 @@
 //!   incremental reader is bounded.
 //! - [`amf0`]: the AMF0 subset needed for `onMetaData` and RTMP command objects, with
 //!   depth and size limits.
+//! - [`ingest`]: framing of the ingest WebSocket's binary messages (sequence number plus
+//!   one tag), used by the browser to send and by the server to parse.
 //! - [`secret`]: a string type for stream keys and the producer secret that never
 //!   prints its value.
 //! - [`rtmp`] (native only): an RTMP publishing session on top of `rml_rtmp`. The caller
@@ -24,6 +26,7 @@
 
 pub mod amf0;
 pub mod flv;
+pub mod ingest;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod rtmp;
 pub mod secret;

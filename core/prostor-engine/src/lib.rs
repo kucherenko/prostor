@@ -7,6 +7,10 @@
 
 #![forbid(unsafe_code)]
 
+pub mod layout;
+
+pub use layout::render_plan;
+
 use prostor_model::{Board, Scene, SceneId};
 
 /// Errors returned by [`Engine`] commands.

@@ -13,6 +13,15 @@
 
 #![forbid(unsafe_code)]
 
+pub mod ingest;
+pub mod render;
+
+pub use ingest::{
+    EgressKind, EgressPhase, EgressState, IngestClientMessage, IngestErrorCode,
+    IngestServerMessage, StreamInfo,
+};
+pub use render::{RenderLayer, RenderPlan};
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 

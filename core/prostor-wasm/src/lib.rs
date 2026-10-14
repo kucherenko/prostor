@@ -34,6 +34,14 @@ pub fn hello_scene() -> Result<JsValue, JsValue> {
     to_js(&sample_scene())
 }
 
+/// Computes the compositor's drawing instructions for `scene` (a plain object matching the
+/// generated `Scene` type) on a `width × height` program. Returns a `RenderPlan` object.
+#[wasm_bindgen]
+pub fn render_plan(scene: JsValue, width: u32, height: u32) -> Result<JsValue, JsValue> {
+    let scene: Scene = serde_wasm_bindgen::from_value(scene)?;
+    to_js(&prostor_engine::render_plan(&scene, (width, height)))
+}
+
 /// Serializes a value into a JSON-compatible JS object (maps as objects,
 /// `None` as `null`), which is the shape the `ts-rs` types describe.
 fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {

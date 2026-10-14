@@ -2,7 +2,7 @@
 
 #![cfg(target_arch = "wasm32")]
 
-use prostor_model::{LayerKind, Scene};
+use prostor_model::{LayerKind, RenderPlan, Scene};
 use prostor_protocol::flv::{AvcPacketType, Header, MAX_BODY_LEN, TagKind, parse_exact, parse_tag};
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
@@ -20,6 +20,26 @@ fn hello_scene_round_trips_through_js() {
 #[wasm_bindgen_test]
 fn version_matches_the_crate() {
     assert_eq!(prostor_wasm::version(), env!("CARGO_PKG_VERSION"));
+}
+
+#[wasm_bindgen_test]
+fn render_plan_orders_the_sample_scene_for_the_program() {
+    let scene = prostor_wasm::hello_scene().unwrap();
+    let plan = prostor_wasm::render_plan(scene, 1280, 720).expect("plan serializes");
+    let plan: RenderPlan = serde_wasm_bindgen::from_value(plan).expect("deserializes back");
+    assert_eq!((plan.width, plan.height), (1280, 720));
+    assert_eq!(plan.layers.len(), 2);
+    assert!(matches!(plan.layers[0].kind, LayerKind::Camera));
+    assert!(matches!(plan.layers[1].kind, LayerKind::Text { .. }));
+    assert_eq!(
+        (plan.layers[0].rect.w, plan.layers[0].rect.h),
+        (1280.0, 720.0),
+        "the full-frame camera is clamped to the 720p program"
+    );
+    assert!(plan.layers.iter().all(|l| l.opacity == 1.0));
+
+    let err = prostor_wasm::render_plan(wasm_bindgen::JsValue::from_str("nope"), 1, 1);
+    assert!(err.is_err(), "a non-scene value is an error, not a panic");
 }
 
 #[wasm_bindgen_test]
