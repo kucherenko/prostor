@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { resolve } from '$app/paths';
 	import Board from '#lib/board/Board.svelte';
 	import SceneEditor from '#lib/board/SceneEditor.svelte';
 	import { BoardStore } from '#lib/board/store.svelte';
+	import Lobby, { type JoinedMedia } from '#lib/lobby/Lobby.svelte';
 	import { exportDocument, importDocument } from '#lib/adapters/storage';
 	import {
 		loadDestinations,
@@ -23,13 +24,17 @@
 	const FPS = 30;
 	const SAMPLE_RATE = 48_000;
 
-	type Phase = 'loading' | 'unsupported' | 'idle' | 'camera' | 'starting' | 'live' | 'stopping';
+	type Phase =
+		'loading' | 'unsupported' | 'lobby' | 'idle' | 'camera' | 'starting' | 'live' | 'stopping';
 
 	let phase = $state<Phase>('loading');
+	// Room and secret are typed in the lobby. The secret stays in memory only.
 	let room = $state('studio');
 	let secret = $state('');
+	let joinedAs = $state<string | null>(null);
 	let bitrateKbps = $state(4000);
 	let withAudio = $state(true);
+	let microphoneAvailable = $state(false);
 	let error = $state<string | null>(null);
 	let missing = $state<string[]>([]);
 	let recording = $state<string | null>(null);
@@ -44,6 +49,11 @@
 
 	let pipeline: StudioPipeline | null = null;
 	let signaling: SignalingClient | null = null;
+	// The lobby's stream until the pipeline has taken it over. Plain on purpose: `onDestroy` is
+	// a teardown, and a teardown reads `$state` as it was before the change that destroyed the
+	// component (see Lobby.svelte).
+	let pendingStream: MediaStream | null = null;
+	let destroyed = false;
 
 	$effect(() => {
 		// Persist every edit (the key included: this browser is the only place it lives).
@@ -65,42 +75,30 @@
 			phase = 'unsupported';
 			return;
 		}
-		try {
-			const plan = store.renderPlan(WIDTH, HEIGHT);
-			pipeline = new StudioPipeline({
-				onStatus: (next) => (status = next),
-				onStarted: () => undefined,
-				onStopped: (last, reason) => {
-					status = last;
-					if (reason) error = reason;
-					if (phase === 'live' || phase === 'starting' || phase === 'stopping') phase = 'camera';
-				},
-				onError: (message) => (error = message)
-			});
-			await pipeline.init(previewCanvas, plan);
-			phase = 'idle';
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : String(cause);
-			phase = 'idle';
-		}
+		phase = 'lobby';
 	});
 
 	onDestroy(() => {
+		destroyed = true;
+		// Left mid-Join: the pipeline does not own the stream yet, so release the devices here.
+		pendingStream?.getTracks().forEach((track) => track.stop());
+		pendingStream = null;
 		signaling?.close();
 		void pipeline?.dispose();
 		void store?.flush();
 	});
 
-	// The compositor always draws what the board says is live.
+	// The compositor always draws what the board says is live. The pipeline only exists after
+	// Join, so the board is read first: this effect must depend on it from its first run.
 	$effect(() => {
-		if (!store || !pipeline) return;
+		if (!store) return;
 		void store.doc;
 		void store.live;
-		pipeline.setPlan(store.renderPlan(WIDTH, HEIGHT));
+		pipeline?.setPlan(store.renderPlan(WIDTH, HEIGHT));
 	});
 
 	function onKey(event: KeyboardEvent) {
-		if (!store) return;
+		if (!store || phase === 'loading' || phase === 'lobby') return;
 		const target = event.target as HTMLElement | null;
 		if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
 		const digit = Number(event.key);
@@ -159,22 +157,55 @@
 		signaling = client;
 	}
 
-	async function openCamera() {
-		if (!pipeline) return;
+	/**
+	 * The lobby hands over a live stream: show the studio, start the compositor on its program
+	 * canvas and attach the stream to it. If any of that fails, back to the lobby.
+	 */
+	async function join(joined: JoinedMedia) {
+		if (!store) return;
+		pendingStream = joined.stream;
 		error = null;
+		joinedAs = joined.displayName;
+		microphoneAvailable = joined.stream.getAudioTracks().length > 0;
+		withAudio = microphoneAvailable;
+		// The studio renders now; its program canvas must exist before the Worker takes it over.
+		phase = 'idle';
+		await tick();
 		try {
-			const opened = await pipeline.openMedia({
-				width: 1280,
-				height: 720,
-				fps: FPS,
-				audio: withAudio,
-				sampleRate: SAMPLE_RATE
+			// The page was left meanwhile: `onDestroy` already released the stream.
+			if (destroyed) return;
+			if (!previewCanvas) throw new Error('the program preview did not render');
+			pipeline = new StudioPipeline({
+				onStatus: (next) => (status = next),
+				onStarted: () => undefined,
+				onStopped: (last, reason) => {
+					status = last;
+					if (reason) error = reason;
+					if (phase === 'live' || phase === 'starting' || phase === 'stopping') phase = 'camera';
+				},
+				onError: (message) => (error = message)
 			});
+			await pipeline.init(previewCanvas, store.renderPlan(WIDTH, HEIGHT));
+			const opened = await pipeline.attachMedia(joined.stream, { sampleRate: SAMPLE_RATE });
+			pendingStream = null; // the pipeline owns the stream from here on
 			const { width, height, frameRate } = opened.video;
 			cameraSettings = `${width}×${height} @ ${frameRate ?? '?'} fps${opened.audio ? ', microphone' : ''}`;
 			phase = 'camera';
 		} catch (cause) {
+			// Nothing is streaming yet: release the devices and let the user try again from the
+			// lobby, where the name, room and secret are still filled in.
+			joined.stream.getTracks().forEach((track) => track.stop());
+			pendingStream = null;
+			try {
+				await pipeline?.dispose();
+			} catch {
+				// The worker is going away either way.
+			}
+			pipeline = null;
+			cameraSettings = null;
+			joinedAs = null;
 			error = cause instanceof Error ? cause.message : String(cause);
+			phase = 'lobby';
 		}
 	}
 
@@ -230,286 +261,311 @@
 
 <svelte:window onkeydown={onKey} />
 
-<main class="mx-auto max-w-7xl p-6 font-sans">
-	<header class="flex items-baseline justify-between gap-4">
-		<h1 class="text-3xl font-bold">Studio</h1>
-		{#if store}
-			<input
-				class="min-w-0 flex-1 rounded border px-2 py-1 text-lg"
-				value={store.doc.board.name}
-				onchange={(e) =>
-					store?.dispatch({
-						type: 'rename_board',
-						name: (e.currentTarget as HTMLInputElement).value
-					})}
-				aria-label="Board name"
-				data-testid="board-name"
-			/>
-			<button
-				type="button"
-				class="rounded border px-3 py-1 text-sm"
-				onclick={exportBoard}
-				data-testid="export">Export</button
-			>
-			<button
-				type="button"
-				class="rounded border px-3 py-1 text-sm"
-				onclick={importBoard}
-				data-testid="import">Import</button
-			>
-		{/if}
-		<a class="text-blue-700 underline" href={resolve('/')}>Back</a>
-	</header>
-
-	{#if phase === 'unsupported'}
-		<p class="mt-4 text-red-700" data-testid="error">
-			This browser lacks {missing.join(', ')}. Use a current Chrome.
-		</p>
-	{/if}
-	{#if store?.storageError}
-		<p class="mt-2 text-sm text-amber-700" data-testid="storage-error">{store.storageError}</p>
-	{/if}
-	{#if store?.lastError}
-		<p class="mt-2 text-sm text-red-700" data-testid="command-error">Refused: {store.lastError}</p>
-	{/if}
-
-	{#if store}
-		<section class="mt-4 grid gap-4 lg:grid-cols-[3fr_2fr]">
-			<div>
-				<Board {store} />
-			</div>
-			<div data-testid="scene-panel">
-				<SceneEditor {store} />
-				{#if store.selectedTransition}
-					{@const t = store.transitions.find((x) => x.id === store?.selectedTransition)}
-					{#if t}
-						<div class="mt-3 rounded border p-2 text-sm" data-testid="transition-panel">
-							<div class="flex items-center justify-between">
-								<span class="font-semibold">
-									Transition {store.scene(t.from)?.name} → {store.scene(t.to)?.name}
-								</span>
-								<button
-									type="button"
-									class="rounded border px-2 py-1 text-red-700"
-									onclick={() => store?.dispatch({ type: 'remove_transition', id: t.id })}
-									data-testid="delete-transition">Delete</button
-								>
-							</div>
-							<p class="mt-1 text-xs text-gray-500">
-								{t.kind.type}{t.kind.type === 'cut' ? '' : `, ${t.duration_ms} ms`}. Crossfades and
-								slides animate in M4; until then every switch is a cut.
-							</p>
-						</div>
-					{/if}
-				{/if}
-			</div>
-		</section>
-	{/if}
-
-	<h2 class="mt-6 flex items-center gap-3 text-lg font-semibold">
-		Program
-		<span class="text-sm font-normal text-gray-500" data-testid="program-scene">
-			{store?.scene(store.live)?.name ?? 'nothing on program'}
-		</span>
-	</h2>
-
-	<section class="mt-2 grid gap-4 md:grid-cols-[2fr_1fr]">
-		<canvas
-			bind:this={previewCanvas}
-			class="aspect-video w-full rounded bg-black"
-			width={WIDTH / 2}
-			height={HEIGHT / 2}
-			data-testid="preview"
-		></canvas>
-
-		<form class="flex flex-col gap-3 text-sm" onsubmit={(e) => e.preventDefault()}>
-			<label class="flex flex-col gap-1">
-				<span>Room</span>
-				<input
-					class="rounded border px-2 py-1"
-					bind:value={room}
-					disabled={phase !== 'idle' && phase !== 'camera'}
-					data-testid="room"
-					pattern={'[A-Za-z0-9_-]{1,64}'}
-				/>
-			</label>
-			<label class="flex flex-col gap-1">
-				<span>Producer secret (kept in memory only)</span>
-				<input
-					class="rounded border px-2 py-1"
-					type="password"
-					autocomplete="off"
-					bind:value={secret}
-					disabled={phase !== 'idle' && phase !== 'camera'}
-					data-testid="secret"
-				/>
-			</label>
-			<label class="flex flex-col gap-1">
-				<span>Video bitrate</span>
-				<select
-					class="rounded border px-2 py-1"
-					bind:value={bitrateKbps}
-					disabled={phase === 'live'}
-				>
-					<option value={2500}>2.5 Mbit/s</option>
-					<option value={4000}>4 Mbit/s</option>
-					<option value={6000}>6 Mbit/s</option>
-				</select>
-			</label>
-			<label class="flex items-center gap-2">
-				<input type="checkbox" bind:checked={withAudio} disabled={phase !== 'idle'} />
-				<span>Microphone (AAC-LC)</span>
-			</label>
-			<div class="mt-2 flex flex-wrap gap-2">
-				<button
-					type="button"
-					class="rounded bg-gray-800 px-3 py-1 text-white disabled:opacity-40"
-					onclick={openCamera}
-					disabled={phase !== 'idle'}
-					data-testid="open-camera">Open camera</button
-				>
-				<button
-					type="button"
-					class="rounded bg-red-700 px-3 py-1 text-white disabled:opacity-40"
-					onclick={start}
-					disabled={phase !== 'camera'}
-					data-testid="start">Start</button
-				>
-				<button
-					type="button"
-					class="rounded bg-gray-500 px-3 py-1 text-white disabled:opacity-40"
-					onclick={stop}
-					disabled={phase !== 'live'}
-					data-testid="stop">Stop</button
-				>
-			</div>
-			<p class="text-gray-600">
-				State: <span data-testid="phase">{phase}</span>
-				{#if cameraSettings}· camera <span data-testid="camera">{cameraSettings}</span>{/if}
-			</p>
-			{#if recording}
-				<p>
-					Recording: <code data-testid="recording">{recording}</code>
-					{audioActive ? '' : '(video only: no AAC encoder here)'}
-				</p>
-			{/if}
-			{#if error}
-				<p class="text-red-700" data-testid="error">{error}</p>
-			{/if}
-		</form>
-	</section>
-
-	<section class="mt-4 text-sm">
-		<div class="flex items-baseline justify-between">
-			<h2 class="text-lg font-semibold">Destinations</h2>
-			<label class="flex items-center gap-2 text-xs text-gray-600">
-				<input type="checkbox" bind:checked={revealKeys} />
-				<span>Show keys</span>
-			</label>
-		</div>
-		<p class="text-xs text-gray-600">
-			URL without the key (e.g. <code>rtmp://live.twitch.tv/app</code>) and the key beside it.
-			Stored in this browser only; sent to the server when you press Start, never written there.
-		</p>
-		<ul class="mt-2 flex flex-col gap-2" data-testid="destinations">
-			{#each destinations as destination, i (destination.id)}
-				<li class="grid grid-cols-[auto_1fr_2fr_2fr_auto] items-center gap-2">
-					<input
-						type="checkbox"
-						bind:checked={destination.enabled}
-						disabled={phase === 'live' || phase === 'starting'}
-						title="Enabled"
-					/>
+{#if phase === 'loading' || phase === 'lobby'}
+	<div class="relative">
+		{#if phase === 'lobby'}
+			<Lobby title="Join the studio" onJoin={(joined) => void join(joined)}>
+				<label class="flex flex-col gap-1">
+					<span>Room</span>
 					<input
 						class="rounded border px-2 py-1"
-						placeholder="Name"
-						bind:value={destination.name}
-						disabled={phase === 'live' || phase === 'starting'}
-						data-testid={`dest-name-${i}`}
+						bind:value={room}
+						required
+						pattern={'[A-Za-z0-9_\\-]{1,64}'}
+						title="Letters, digits, - and _ only, up to 64 characters"
+						data-testid="room"
 					/>
+				</label>
+				<label class="flex flex-col gap-1">
+					<span>Producer secret (kept in memory only)</span>
 					<input
-						class="rounded border px-2 py-1 font-mono"
-						placeholder="rtmp://host/app"
-						bind:value={destination.url}
-						disabled={phase === 'live' || phase === 'starting'}
-						data-testid={`dest-url-${i}`}
+						class="rounded border px-2 py-1"
+						type="password"
+						autocomplete="off"
+						bind:value={secret}
+						data-testid="secret"
 					/>
-					{#if revealKeys}
-						<input
-							class="rounded border px-2 py-1 font-mono"
-							placeholder="stream key"
-							autocomplete="off"
-							bind:value={destination.key}
-							disabled={phase === 'live' || phase === 'starting'}
-							data-testid={`dest-key-${i}`}
-						/>
-					{:else}
-						<input
-							class="rounded border px-2 py-1 font-mono"
-							type="password"
-							placeholder="stream key"
-							autocomplete="off"
-							bind:value={destination.key}
-							disabled={phase === 'live' || phase === 'starting'}
-							data-testid={`dest-key-${i}`}
-							title={maskKey(destination.key)}
-						/>
+				</label>
+				{#if error}
+					<p class="text-red-700" role="alert" data-testid="error">{error}</p>
+				{/if}
+			</Lobby>
+		{:else}
+			<p class="grid min-h-dvh place-items-center font-sans text-gray-500">Loading…</p>
+		{/if}
+		<a class="absolute top-3 left-4 font-sans text-sm text-blue-700 underline" href={resolve('/')}
+			>Back</a
+		>
+		<p class="absolute inset-x-4 bottom-2 text-center font-sans text-xs text-gray-600">
+			State: <span data-testid="phase">{phase}</span>
+		</p>
+	</div>
+{:else}
+	<main class="mx-auto max-w-7xl p-6 font-sans">
+		<header class="flex flex-wrap items-baseline justify-between gap-4">
+			<h1 class="text-3xl font-bold">Studio</h1>
+			{#if joinedAs}
+				<p class="text-sm text-gray-600" data-testid="joined">
+					Room <code data-testid="joined-room">{room}</code> · joined as
+					<strong data-testid="joined-name">{joinedAs}</strong>
+				</p>
+			{/if}
+			{#if store}
+				<input
+					class="min-w-0 flex-1 rounded border px-2 py-1 text-lg"
+					value={store.doc.board.name}
+					onchange={(e) =>
+						store?.dispatch({
+							type: 'rename_board',
+							name: (e.currentTarget as HTMLInputElement).value
+						})}
+					aria-label="Board name"
+					data-testid="board-name"
+				/>
+				<button
+					type="button"
+					class="rounded border px-3 py-1 text-sm"
+					onclick={exportBoard}
+					data-testid="export">Export</button
+				>
+				<button
+					type="button"
+					class="rounded border px-3 py-1 text-sm"
+					onclick={importBoard}
+					data-testid="import">Import</button
+				>
+			{/if}
+			<a class="text-blue-700 underline" href={resolve('/')}>Back</a>
+		</header>
+
+		{#if phase === 'unsupported'}
+			<p class="mt-4 text-red-700" data-testid="error">
+				This browser lacks {missing.join(', ')}. Use a current Chrome.
+			</p>
+		{/if}
+		{#if store?.storageError}
+			<p class="mt-2 text-sm text-amber-700" data-testid="storage-error">{store.storageError}</p>
+		{/if}
+		{#if store?.lastError}
+			<p class="mt-2 text-sm text-red-700" data-testid="command-error">
+				Refused: {store.lastError}
+			</p>
+		{/if}
+
+		{#if store}
+			<section class="mt-4 grid gap-4 lg:grid-cols-[3fr_2fr]">
+				<div>
+					<Board {store} />
+				</div>
+				<div data-testid="scene-panel">
+					<SceneEditor {store} />
+					{#if store.selectedTransition}
+						{@const t = store.transitions.find((x) => x.id === store?.selectedTransition)}
+						{#if t}
+							<div class="mt-3 rounded border p-2 text-sm" data-testid="transition-panel">
+								<div class="flex items-center justify-between">
+									<span class="font-semibold">
+										Transition {store.scene(t.from)?.name} → {store.scene(t.to)?.name}
+									</span>
+									<button
+										type="button"
+										class="rounded border px-2 py-1 text-red-700"
+										onclick={() => store?.dispatch({ type: 'remove_transition', id: t.id })}
+										data-testid="delete-transition">Delete</button
+									>
+								</div>
+								<p class="mt-1 text-xs text-gray-500">
+									{t.kind.type}{t.kind.type === 'cut' ? '' : `, ${t.duration_ms} ms`}. Crossfades
+									and slides animate in M4; until then every switch is a cut.
+								</p>
+							</div>
+						{/if}
 					{/if}
+				</div>
+			</section>
+		{/if}
+
+		<h2 class="mt-6 flex items-center gap-3 text-lg font-semibold">
+			Program
+			<span class="text-sm font-normal text-gray-500" data-testid="program-scene">
+				{store?.scene(store.live)?.name ?? 'nothing on program'}
+			</span>
+		</h2>
+
+		<section class="mt-2 grid gap-4 md:grid-cols-[2fr_1fr]">
+			<canvas
+				bind:this={previewCanvas}
+				class="aspect-video w-full rounded bg-black"
+				width={WIDTH / 2}
+				height={HEIGHT / 2}
+				data-testid="preview"
+			></canvas>
+
+			<form class="flex flex-col gap-3 text-sm" onsubmit={(e) => e.preventDefault()}>
+				<label class="flex flex-col gap-1">
+					<span>Video bitrate</span>
+					<select
+						class="rounded border px-2 py-1"
+						bind:value={bitrateKbps}
+						disabled={phase === 'live'}
+					>
+						<option value={2500}>2.5 Mbit/s</option>
+						<option value={4000}>4 Mbit/s</option>
+						<option value={6000}>6 Mbit/s</option>
+					</select>
+				</label>
+				<label class="flex items-center gap-2">
+					<input
+						type="checkbox"
+						bind:checked={withAudio}
+						disabled={phase !== 'camera' || !microphoneAvailable}
+					/>
+					<span>Microphone (AAC-LC)</span>
+				</label>
+				<div class="mt-2 flex flex-wrap gap-2">
 					<button
 						type="button"
-						class="rounded px-2 py-1 text-gray-600 hover:text-red-700 disabled:opacity-40"
-						onclick={() => removeDestination(destination.id)}
-						disabled={phase === 'live' || phase === 'starting'}
-						title="Remove">✕</button
+						class="rounded bg-red-700 px-3 py-1 text-white disabled:opacity-40"
+						onclick={start}
+						disabled={phase !== 'camera'}
+						data-testid="start">Start</button
 					>
-				</li>
-			{/each}
-		</ul>
-		<button
-			type="button"
-			class="mt-2 rounded border px-3 py-1 disabled:opacity-40"
-			onclick={addDestination}
-			disabled={phase === 'live' || phase === 'starting'}
-			data-testid="dest-add">Add destination</button
-		>
-		{#if armed.length > 0}
-			<p class="mt-1 text-xs text-gray-600" data-testid="armed">Armed: {armed.join(', ')}</p>
-		{/if}
-	</section>
+					<button
+						type="button"
+						class="rounded bg-gray-500 px-3 py-1 text-white disabled:opacity-40"
+						onclick={stop}
+						disabled={phase !== 'live'}
+						data-testid="stop">Stop</button
+					>
+				</div>
+				<p class="text-gray-600">
+					State: <span data-testid="phase">{phase}</span>
+					{#if cameraSettings}· camera <span data-testid="camera">{cameraSettings}</span>{/if}
+				</p>
+				{#if recording}
+					<p>
+						Recording: <code data-testid="recording">{recording}</code>
+						{audioActive ? '' : '(video only: no AAC encoder here)'}
+					</p>
+				{/if}
+				{#if error}
+					<p class="text-red-700" data-testid="error">{error}</p>
+				{/if}
+			</form>
+		</section>
 
-	<section
-		class="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs sm:grid-cols-4 lg:grid-cols-6"
-	>
-		<span>fps</span><span data-testid="fps">{status.fps}</span>
-		<span>rendered</span><span>{status.framesRendered}</span>
-		<span>camera frames</span><span>{status.cameraFrames}</span>
-		<span>encoder</span><span data-testid="encoder">{status.encoder.kind}</span>
-		<span>encode queue</span><span>{status.encoder.queue}</span>
-		<span>encoded / dropped</span>
-		<span data-testid="encoded">{status.encoder.output} / {status.encoder.dropped}</span>
-		<span>keyframes</span><span>{status.encoder.keyframes}</span>
-		<span>bitrate</span>
-		<span
-			>{fmtK(status.encoder.bitrate / 1000)} / {fmtK(status.encoder.targetBitrate / 1000)} kbit/s</span
-		>
-		<span>audio chunks</span><span>{status.audio.enabled ? status.audio.chunks : 'off'}</span>
-		<span>aac priming</span><span>{status.audio.primingMs} ms</span>
-		<span>ingest</span><span data-testid="ingest-phase">{status.ingest.phase}</span>
-		<span>lag</span><span data-testid="lag">{status.ingest.lagMs} ms</span>
-		<span>bufferedAmount</span><span>{fmtK(status.ingest.bufferedAmount)}</span>
-		<span>sent tags / dropped</span>
-		<span data-testid="sent">{status.ingest.sentTags} / {status.ingest.droppedTags}</span>
-		<span>sent</span><span>{fmtMb(status.ingest.sentBytes)} ({status.ingest.kbps} kbit/s)</span>
-		<span>acked / last seq</span><span>{status.ingest.ackedSeq} / {status.ingest.lastSeq}</span>
-		<span>reconnects</span><span>{status.ingest.reconnects}</span>
-		{#each status.ingest.egress as egress (egress.id)}
-			<span>egress {egress.id}</span>
-			<span data-testid="egress" data-egress={egress.id}
-				>{egress.state}
-				{egress.tags} tags, {egress.dropped} dropped{egress.reconnects > 0
-					? `, ${egress.reconnects} reconnects`
-					: ''}{egress.detail ? ` (${egress.detail})` : ''}</span
+		<section class="mt-4 text-sm">
+			<div class="flex items-baseline justify-between">
+				<h2 class="text-lg font-semibold">Destinations</h2>
+				<label class="flex items-center gap-2 text-xs text-gray-600">
+					<input type="checkbox" bind:checked={revealKeys} />
+					<span>Show keys</span>
+				</label>
+			</div>
+			<p class="text-xs text-gray-600">
+				URL without the key (e.g. <code>rtmp://live.twitch.tv/app</code>) and the key beside it.
+				Stored in this browser only; sent to the server when you press Start, never written there.
+			</p>
+			<ul class="mt-2 flex flex-col gap-2" data-testid="destinations">
+				{#each destinations as destination, i (destination.id)}
+					<li class="grid grid-cols-[auto_1fr_2fr_2fr_auto] items-center gap-2">
+						<input
+							type="checkbox"
+							bind:checked={destination.enabled}
+							disabled={phase === 'live' || phase === 'starting'}
+							title="Enabled"
+						/>
+						<input
+							class="rounded border px-2 py-1"
+							placeholder="Name"
+							bind:value={destination.name}
+							disabled={phase === 'live' || phase === 'starting'}
+							data-testid={`dest-name-${i}`}
+						/>
+						<input
+							class="rounded border px-2 py-1 font-mono"
+							placeholder="rtmp://host/app"
+							bind:value={destination.url}
+							disabled={phase === 'live' || phase === 'starting'}
+							data-testid={`dest-url-${i}`}
+						/>
+						{#if revealKeys}
+							<input
+								class="rounded border px-2 py-1 font-mono"
+								placeholder="stream key"
+								autocomplete="off"
+								bind:value={destination.key}
+								disabled={phase === 'live' || phase === 'starting'}
+								data-testid={`dest-key-${i}`}
+							/>
+						{:else}
+							<input
+								class="rounded border px-2 py-1 font-mono"
+								type="password"
+								placeholder="stream key"
+								autocomplete="off"
+								bind:value={destination.key}
+								disabled={phase === 'live' || phase === 'starting'}
+								data-testid={`dest-key-${i}`}
+								title={maskKey(destination.key)}
+							/>
+						{/if}
+						<button
+							type="button"
+							class="rounded px-2 py-1 text-gray-600 hover:text-red-700 disabled:opacity-40"
+							onclick={() => removeDestination(destination.id)}
+							disabled={phase === 'live' || phase === 'starting'}
+							title="Remove">✕</button
+						>
+					</li>
+				{/each}
+			</ul>
+			<button
+				type="button"
+				class="mt-2 rounded border px-3 py-1 disabled:opacity-40"
+				onclick={addDestination}
+				disabled={phase === 'live' || phase === 'starting'}
+				data-testid="dest-add">Add destination</button
 			>
-		{/each}
-	</section>
-</main>
+			{#if armed.length > 0}
+				<p class="mt-1 text-xs text-gray-600" data-testid="armed">Armed: {armed.join(', ')}</p>
+			{/if}
+		</section>
+
+		<section
+			class="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs sm:grid-cols-4 lg:grid-cols-6"
+		>
+			<span>fps</span><span data-testid="fps">{status.fps}</span>
+			<span>rendered</span><span>{status.framesRendered}</span>
+			<span>camera frames</span><span>{status.cameraFrames}</span>
+			<span>encoder</span><span data-testid="encoder">{status.encoder.kind}</span>
+			<span>encode queue</span><span>{status.encoder.queue}</span>
+			<span>encoded / dropped</span>
+			<span data-testid="encoded">{status.encoder.output} / {status.encoder.dropped}</span>
+			<span>keyframes</span><span>{status.encoder.keyframes}</span>
+			<span>bitrate</span>
+			<span
+				>{fmtK(status.encoder.bitrate / 1000)} / {fmtK(status.encoder.targetBitrate / 1000)} kbit/s</span
+			>
+			<span>audio chunks</span><span>{status.audio.enabled ? status.audio.chunks : 'off'}</span>
+			<span>aac priming</span><span>{status.audio.primingMs} ms</span>
+			<span>ingest</span><span data-testid="ingest-phase">{status.ingest.phase}</span>
+			<span>lag</span><span data-testid="lag">{status.ingest.lagMs} ms</span>
+			<span>bufferedAmount</span><span>{fmtK(status.ingest.bufferedAmount)}</span>
+			<span>sent tags / dropped</span>
+			<span data-testid="sent">{status.ingest.sentTags} / {status.ingest.droppedTags}</span>
+			<span>sent</span><span>{fmtMb(status.ingest.sentBytes)} ({status.ingest.kbps} kbit/s)</span>
+			<span>acked / last seq</span><span>{status.ingest.ackedSeq} / {status.ingest.lastSeq}</span>
+			<span>reconnects</span><span>{status.ingest.reconnects}</span>
+			{#each status.ingest.egress as egress (egress.id)}
+				<span>egress {egress.id}</span>
+				<span data-testid="egress" data-egress={egress.id}
+					>{egress.state}
+					{egress.tags} tags, {egress.dropped} dropped{egress.reconnects > 0
+						? `, ${egress.reconnects} reconnects`
+						: ''}{egress.detail ? ` (${egress.detail})` : ''}</span
+				>
+			{/each}
+		</section>
+	</main>
+{/if}

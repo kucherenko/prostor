@@ -1,10 +1,9 @@
-// Main-thread side of the producer pipeline: owns the Worker, the capture devices and
-// the preview canvas, and forwards camera frames and mixed audio to the Worker.
+// Main-thread side of the producer pipeline: owns the Worker, the capture stream the lobby
+// opened and the preview canvas, and forwards camera frames and mixed audio to the Worker.
 
 import type { RenderPlan } from '#lib/generated/RenderPlan';
 import {
 	createAudioGraph,
-	openCapture,
 	pumpAudioData,
 	pumpVideoFrames,
 	type AudioGraph,
@@ -49,16 +48,15 @@ export class StudioPipeline {
 		this.send({ type: 'plan', plan });
 	}
 
-	/** Opens the camera (and microphone) and starts forwarding frames to the Worker. */
-	async openMedia(opts: {
-		width: number;
-		height: number;
-		fps: number;
-		audio: boolean;
-		sampleRate: number;
-	}): Promise<{ video: MediaTrackSettings; audio: boolean }> {
+	/**
+	 * Starts forwarding an open stream (the lobby's camera, and its microphone if it has
+	 * one) to the Worker. The pipeline owns the stream from here on: `closeMedia` stops it.
+	 */
+	async attachMedia(
+		stream: MediaStream,
+		opts: { sampleRate: number }
+	): Promise<{ video: MediaTrackSettings; audio: boolean }> {
 		await this.closeMedia();
-		const stream = await openCapture(opts);
 		this.stream = stream;
 		const [videoTrack] = stream.getVideoTracks();
 		if (!videoTrack) throw new Error('no camera track');
@@ -66,14 +64,12 @@ export class StudioPipeline {
 			this.send({ type: 'camera', frame }, [frame]);
 		});
 		let audio = false;
-		if (opts.audio) {
-			this.audioGraph = await createAudioGraph(stream, opts.sampleRate);
-			if (this.audioGraph) {
-				audio = true;
-				this.audioPump = pumpAudioData(this.audioGraph.track, (data) => {
-					this.send({ type: 'audio', data }, [data]);
-				});
-			}
+		this.audioGraph = await createAudioGraph(stream, opts.sampleRate);
+		if (this.audioGraph) {
+			audio = true;
+			this.audioPump = pumpAudioData(this.audioGraph.track, (data) => {
+				this.send({ type: 'audio', data }, [data]);
+			});
 		}
 		return { video: videoTrack.getSettings(), audio };
 	}

@@ -13,8 +13,8 @@ The compositor Worker and its main-thread controller.
   2D-canvas frame source: spike 0001 showed it starves the hardware encoder.
 - `geometry.ts`: program pixels → clip space, and the sampled source region (crop or a
   centred cover fit).
-- `pipeline.ts` (main thread): starts the Worker, transfers the preview canvas, opens
-  capture with `adapters/media` and forwards frames; exposes `start`/`stop`.
+- `pipeline.ts` (main thread): starts the Worker, transfers the preview canvas, takes the
+  stream the lobby opened (`attachMedia`) and forwards its frames; exposes `start`/`stop`.
 - `messages.ts`: the page ↔ Worker protocol and the `PipelineStatus` the status bar shows.
 
 WebGPU stays behind a flag until ADR 0007 (M4). The audio mixer is a single gain node
