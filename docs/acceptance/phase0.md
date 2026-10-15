@@ -16,17 +16,19 @@ milestone in `docs/plan-phase0.md` and append a row to the results log.
 
 1. **Deploy.** `docker compose up` in the repo root. Open `http://localhost:8080`; the studio
    loads with no console errors.
-2. **Unlock.** Open `/studio` and enter `PROSTOR_SECRET` (the value from
-   `docker-compose.yml` or the environment).
-3. **Scene 1.** Create a scene node on the board. Add a camera layer and a text layer
-   reading `Scene 1`. The scene preview shows both layers.
-4. **Scene 2.** Create a second scene with a camera layer and a text layer reading `Scene 2`.
-   Draw a transition edge from scene 1 to scene 2 and set it to crossfade, 500 ms.
+2. **Lobby.** Open `/studio`. Pick the camera and microphone, check the preview, enter a
+   display name and `PROSTOR_SECRET` (the value from `docker-compose.yml` or the
+   environment), and click Join. The canvas opens with the chosen camera.
+3. **Scene 1.** From the toolbar, put a camera element and a text element reading `Scene 1`
+   on the canvas, and draw a frame around them: that frame is scene 1.
+4. **Scene 2.** Elsewhere on the canvas, put a second camera element and a text element
+   reading `Scene 2`, and draw a smaller frame around them (a closer zoom). Draw a
+   transition edge from scene 1 to scene 2 and set it to crossfade, 500 ms.
 5. **Invite a guest.** Copy the join link (`/join/<room>?t=<token>`). Open it on the guest
    machine, allow camera and microphone. The producer sees the guest's tile with live video
    and audio level.
-6. **Assign the guest.** Add a guest layer to scene 2 bound to the guest. Scene 2's preview
-   shows the guest's video.
+6. **Assign the guest.** Put the guest's element on the canvas inside scene 2's frame.
+   Scene 2 shows the guest's video.
 7. **Destinations.** Add the Twitch and YouTube destinations (URL + key). Keys are masked in
    the UI and absent from the exported board JSON.
 8. **Go live.** Click Start. Within 10 seconds both destination status indicators read

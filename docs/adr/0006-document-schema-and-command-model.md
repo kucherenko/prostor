@@ -1,6 +1,6 @@
 # ADR 0006: Document schema v1 and the command model
 
-- Status: accepted
+- Status: accepted; decisions 1 and 2 amended by ADR 0007 (schema v2)
 - Date: 2026-10-15
 
 ## Context
