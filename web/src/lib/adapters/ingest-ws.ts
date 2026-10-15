@@ -89,7 +89,7 @@ export class IngestClient {
 		this.lastAckAt = this.now();
 	}
 
-	/** Opens the socket and completes `hello` → `started`. */
+	/** Opens the socket, completes `hello` → `started` and sends the remembered headers. */
 	async connect(): Promise<{ recording: string | null }> {
 		this.phase = 'connecting';
 		const socket = new WebSocket(this.opts.url);
@@ -117,10 +117,17 @@ export class IngestClient {
 		this.reconnectDelay = RECONNECT_MIN_MS;
 		socket.onclose = (event) => this.onClose(event);
 		socket.onerror = () => undefined;
+		// Every server session opens with the sequence headers. `send` drops tags until
+		// `started` but remembers headers, so any that arrived meanwhile go out now, and
+		// video dropped meanwhile (or before a reconnect) resumes at a keyframe.
+		for (const header of [this.videoHeader, this.audioHeader]) {
+			if (header) this.sendRaw(header);
+		}
+		if (this.policy.dropping) this.opts.onKeyframeRequest();
 		return { recording: this.recording };
 	}
 
-	/** Remembers the sequence headers so a reconnect can resend them first. */
+	/** Remembers the sequence headers so every new server session gets them first. */
 	private remember(tag: IngestTag) {
 		if (!tag.sequenceHeader) return;
 		if (tag.kind === 'video') this.videoHeader = tag.bytes;
@@ -131,7 +138,11 @@ export class IngestClient {
 	send(tag: IngestTag): boolean {
 		this.remember(tag);
 		const socket = this.socket;
-		if (!socket || socket.readyState !== WebSocket.OPEN || this.phase === 'connecting') {
+		// Only a server session that answered `started` takes media: the handshake, a
+		// reconnect's backoff and a socket left open by a failed handshake all drop it,
+		// and dropped video resumes at a keyframe.
+		const live = this.phase === 'live' || this.phase === 'degraded';
+		if (!socket || socket.readyState !== WebSocket.OPEN || !live) {
 			if (tag.kind === 'video' && !tag.sequenceHeader) this.policy.dropping = true;
 			this.droppedTags += 1;
 			return false;
@@ -334,21 +345,14 @@ export class IngestClient {
 		if (this.ending) return;
 		this.reconnects += 1;
 		try {
+			// `scheduleReconnect` set video to drop until a keyframe, so `connect` resends
+			// the sequence headers and asks the encoder for one.
 			await this.connect();
 		} catch (error) {
 			if (this.ending) return;
 			this.phase = 'idle';
 			this.scheduleReconnect(error instanceof Error ? error.message : String(error));
-			return;
 		}
-		// A new server session: sequence headers first, then wait for a keyframe.
-		for (const header of [this.videoHeader, this.audioHeader]) {
-			if (header) {
-				this.sendRaw(header);
-			}
-		}
-		this.policy.dropping = true;
-		this.opts.onKeyframeRequest();
 	}
 
 	private sendRaw(bytes: Uint8Array) {

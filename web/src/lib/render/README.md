@@ -13,6 +13,9 @@ The compositor Worker and its main-thread controller.
   2D-canvas frame source: spike 0001 showed it starves the hardware encoder.
 - `geometry.ts`: program pixels → clip space, and the sampled source region (crop or a
   centred cover fit).
+- `audio-hold.ts`: the bounded queue for audio that arrives before the video sequence
+  header; an evicted chunk hands its decoder configuration on, so the audio sequence
+  header is never lost.
 - `pipeline.ts` (main thread): starts the Worker, transfers the preview canvas, takes the
   stream the lobby opened (`attachMedia`) and forwards its frames; exposes `start`/`stop`.
 - `messages.ts`: the page ↔ Worker protocol and the `PipelineStatus` the status bar shows.
