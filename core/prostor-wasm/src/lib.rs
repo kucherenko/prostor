@@ -8,7 +8,10 @@
 #![forbid(unsafe_code)]
 
 use js_sys::{ArrayBuffer, Reflect, Uint8Array};
-use prostor_model::{Layer, LayerId, LayerKind, Point, Rect, Scene, SceneId};
+use prostor_engine::Engine;
+use prostor_model::{
+    Board, BoardDocument, Command, Layer, LayerId, LayerKind, Point, Rect, Scene, SceneId,
+};
 use prostor_protocol::flv;
 use serde::Serialize;
 use std::fmt;
@@ -84,6 +87,70 @@ pub fn render_plan(scene: JsValue, width: u32, height: u32) -> Result<JsValue, J
 fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
     let serializer = serde_wasm_bindgen::Serializer::json_compatible();
     value.serialize(&serializer).map_err(JsValue::from)
+}
+
+fn js_error(value: JsValue) -> JsError {
+    JsError::new(
+        &value
+            .as_string()
+            .unwrap_or_else(|| "serialization failed".to_owned()),
+    )
+}
+
+/// The board editor's engine: a [`BoardDocument`] plus the live selection, mutated only
+/// through [`Command`]s (plain objects matching the generated `Command` type) and read
+/// back as a snapshot or as the compositor's [`RenderPlan`](prostor_model::RenderPlan).
+#[wasm_bindgen]
+pub struct Studio {
+    engine: Engine,
+}
+
+#[wasm_bindgen]
+impl Studio {
+    /// An empty board.
+    #[wasm_bindgen(constructor)]
+    pub fn new(id: &str, name: &str) -> Studio {
+        Studio {
+            engine: Engine::new(Board::new(id, name)),
+        }
+    }
+
+    /// Loads a persisted `BoardDocument`, refusing other schema versions and inconsistent
+    /// boards. The live selection starts empty.
+    pub fn load(document: JsValue) -> Result<Studio, JsError> {
+        let document: BoardDocument = serde_wasm_bindgen::from_value(document)
+            .map_err(|e| JsError::new(&format!("invalid document: {e}")))?;
+        let engine = Engine::load(document).map_err(|e| JsError::new(&e.to_string()))?;
+        Ok(Studio { engine })
+    }
+
+    /// Applies one command and returns the `Event[]` describing what changed. On error
+    /// the board is unchanged.
+    pub fn dispatch(&mut self, command: JsValue) -> Result<JsValue, JsError> {
+        let command: Command = serde_wasm_bindgen::from_value(command)
+            .map_err(|e| JsError::new(&format!("invalid command: {e}")))?;
+        let events = self
+            .engine
+            .apply(command)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+        to_js(&events).map_err(js_error)
+    }
+
+    /// The board as a `BoardDocument` (what to persist or export).
+    pub fn snapshot(&self) -> Result<JsValue, JsError> {
+        to_js(&self.engine.snapshot()).map_err(js_error)
+    }
+
+    /// The id of the scene on program, if any.
+    pub fn live(&self) -> Option<String> {
+        self.engine.live().map(|id| id.as_str().to_owned())
+    }
+
+    /// The compositor's instructions for the live scene on a `width × height` program at
+    /// `now_ms` (unused until M4 animates transitions). Empty when nothing is live.
+    pub fn render_plan(&self, now_ms: f64, width: u32, height: u32) -> Result<JsValue, JsError> {
+        to_js(&self.engine.render_plan(now_ms, (width, height))).map_err(js_error)
+    }
 }
 
 /// The scene returned by [`hello_scene`]; also used by the tests.

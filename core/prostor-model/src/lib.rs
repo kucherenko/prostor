@@ -13,10 +13,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod command;
 pub mod ingest;
 pub mod render;
 pub mod signaling;
 
+pub use command::{Command, Event};
 pub use ingest::{
     EgressKind, EgressPhase, EgressState, IngestClientMessage, IngestErrorCode,
     IngestServerMessage, StreamInfo,
