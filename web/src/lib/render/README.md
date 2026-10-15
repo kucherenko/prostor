@@ -20,5 +20,5 @@ The compositor Worker and its main-thread controller.
   stream the lobby opened (`attachMedia`) and forwards its frames; exposes `start`/`stop`.
 - `messages.ts`: the page ↔ Worker protocol and the `PipelineStatus` the status bar shows.
 
-WebGPU stays behind a flag until ADR 0007 (M4). The audio mixer is a single gain node
+WebGPU stays behind a flag until ADR 0008 (M4). The audio mixer is a single gain node
 until M5 adds guests.

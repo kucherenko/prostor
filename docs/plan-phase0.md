@@ -153,7 +153,7 @@ Goal: scenes come from the board, not from code, and survive a reload.
 Goal: the producer enters through a lobby, builds the show on one canvas, and streams what
 the live frame shows.
 
-- [ ] Lobby: `/studio` opens on camera and microphone pickers (`enumerateDevices`) with a
+- [x] Lobby: `/studio` opens on camera and microphone pickers (`enumerateDevices`) with a
       live preview, a display name, the room and the producer secret → Join. Device ids and
       the name stay in localStorage, never in the board. One component, reused by the M5
       guest page. `just e2e` follows lobby → Join → Start.
