@@ -37,6 +37,8 @@ async fn serve(secret: Option<&str>) -> Server {
         web_dir: dir.path().to_path_buf(),
         recordings_dir: dir.path().join("recordings"),
         secret: secret.map(Secret::new),
+        allowed_origins: vec![],
+        allow_private_destinations: false,
     };
     std::fs::create_dir_all(&config.recordings_dir).unwrap();
     let shutdown = Shutdown::new();

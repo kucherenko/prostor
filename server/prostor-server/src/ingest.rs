@@ -16,6 +16,7 @@ use axum::{
         Path, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
+    http::HeaderMap,
     response::Response,
 };
 use prostor_model::{
@@ -26,7 +27,7 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use crate::{
     app::AppState,
-    egress::{FileEgress, Supervisor, SupervisorError},
+    egress::{FileEgress, RtmpEgress, Supervisor, SupervisorError},
     room::RoomId,
     shutdown::Shutdown,
     ws::{self, CLOSE_GOING_AWAY, CLOSE_INTERNAL, CLOSE_NORMAL, INGEST_MAX_MESSAGE, Peer},
@@ -49,10 +50,14 @@ const MAX_DIMENSION: u32 = 8192;
 pub async fn ingest(
     Path(room): Path<RoomId>,
     State(state): State<AppState>,
+    headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Response {
     if state.shutdown().is_cancelled() {
         return ws::shutting_down();
+    }
+    if !ws::origin_allowed(&headers, state.allowed_origins()) {
+        return ws::forbidden_origin();
     }
     let Some(permit) = state.socket_permit() else {
         return ws::too_many_sockets();
@@ -242,6 +247,15 @@ async fn open(
         })?;
     let name = file.file_name().to_owned();
     supervisor.add(Box::new(file));
+    for destination in state.rooms().destinations(room) {
+        tracing::info!(%room, id = %destination.id, target = %destination.target.tc_url(),
+            "adding rtmp egress");
+        supervisor.add(Box::new(RtmpEgress::new(
+            format!("rtmp-{}", destination.id),
+            destination.target,
+            state.connect_policy(),
+        )));
+    }
     Ok((supervisor, name))
 }
 

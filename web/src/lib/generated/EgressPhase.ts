@@ -3,4 +3,4 @@
 /**
  * Lifecycle of one egress.
  */
-export type EgressPhase = "starting" | "live" | "degraded" | "failed" | "stopped";
+export type EgressPhase = "starting" | "live" | "degraded" | "reconnecting" | "failed" | "stopped";

@@ -19,7 +19,7 @@ use tokio::{
     io::{AsyncWriteExt, BufWriter},
 };
 
-use super::{Egress, EgressError, StreamHeaders};
+use super::{Delivery, Egress, EgressError, StreamHeaders};
 use crate::room::RoomId;
 
 /// Id of the recording egress in status reports.
@@ -120,10 +120,11 @@ impl Egress for FileEgress {
         self.write_buf().await
     }
 
-    async fn push(&mut self, _seq: u32, tag: &TagBuf) -> Result<(), EgressError> {
+    async fn push(&mut self, _seq: u32, tag: &TagBuf) -> Result<Delivery, EgressError> {
         self.buf.clear();
         tag.as_tag().write(&mut self.buf)?;
-        self.write_buf().await
+        self.write_buf().await?;
+        Ok(Delivery::Sent)
     }
 
     async fn stop(&mut self) -> Result<(), EgressError> {

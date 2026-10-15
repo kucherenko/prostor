@@ -90,24 +90,38 @@ smoke: build
     cd "{{ web }}" && PROSTOR_URL="http://127.0.0.1:${port}/" pnpm smoke
 
 # Build, boot the release server with a temporary recordings directory and a secret, stream
-# 10 s from Chrome's fake camera through /studio, and check the recording with ffprobe.
+# 10 s from Chrome's fake camera through /studio (to the recording and, when ffmpeg is
+# installed, to an RTMP listener), and check both files with ffprobe.
 e2e: build
     #!/usr/bin/env bash
     set -euo pipefail
     port="${PROSTOR_E2E_PORT:-18081}"
+    rtmp_port="${PROSTOR_E2E_RTMP_PORT:-19350}"
     recordings="$(mktemp -d)"
     secret="e2e-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
     PROSTOR_LISTEN="127.0.0.1:${port}" PROSTOR_WEB_DIR="{{ web }}/build" \
         PROSTOR_RECORDINGS_DIR="$recordings" PROSTOR_SECRET="$secret" \
+        PROSTOR_ALLOW_PRIVATE_DESTINATIONS=1 \
         "{{ root }}/target/release/prostor" &
     server=$!
-    trap 'kill "$server" 2>/dev/null || true' EXIT
+    trap 'kill "$server" $listener 2>/dev/null || true' EXIT
+    listener=""
+    rtmp_env=()
+    if command -v ffmpeg >/dev/null 2>&1; then
+        # An RTMP destination: ffmpeg listens once and writes what it receives.
+        ffmpeg -v error -y -listen 1 -i "rtmp://127.0.0.1:${rtmp_port}/live/e2e" \
+            -c copy -f flv "$recordings/rtmp-received.flv" &
+        listener=$!
+        rtmp_env=(PROSTOR_E2E_RTMP_URL="rtmp://127.0.0.1:${rtmp_port}/live" PROSTOR_E2E_RTMP_KEY=e2e \
+            PROSTOR_E2E_RTMP_OUT="$recordings/rtmp-received.flv")
+        sleep 0.5
+    fi
     for _ in $(seq 1 50); do
         curl -fs "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1 && break
         sleep 0.2
     done
-    cd "{{ web }}" && PROSTOR_URL="http://127.0.0.1:${port}/" PROSTOR_RECORDINGS_DIR="$recordings" \
-        PROSTOR_SECRET="$secret" pnpm e2e
+    cd "{{ web }}" && env PROSTOR_URL="http://127.0.0.1:${port}/" PROSTOR_RECORDINGS_DIR="$recordings" \
+        PROSTOR_SECRET="$secret" "${rtmp_env[@]}" pnpm e2e
 
 # Build the `prostor` Docker image.
 docker:

@@ -95,24 +95,27 @@ ingest socket and written to disk by the server as a playable FLV.
 Goal: the same stream reaches Twitch and YouTube at once, survives a disconnect, never leaks
 a key.
 
-- [ ] Signaling socket `/ws/room/<id>`: producer auth with `PROSTOR_SECRET`, `start_stream`
-      carrying destinations + keys (memory only, redacted `Debug`), `stop_stream`, status
-      events back to the producer; typed messages in `prostor-model` (ts-rs).
-- [ ] `RtmpEgress` (ADR 0004): tokio TCP + `tokio-rustls` for `rtmps://`, per-destination
-      task with a bounded ~2 s queue, drop-until-keyframe (never audio, decided with
-      `Tag::class()` before `publish_tag`), reconnect with backoff resending cached
-      headers and rebasing timestamps, `SetPeerBandwidth` tolerated.
-- [ ] Connect-time safety (review #16): resolve the destination host and refuse
-      loopback, link-local and private ranges unless allow-listed; connect and handshake
-      timeouts.
-- [ ] Producer auth + `Origin` allow-list on both WebSocket upgrades (review #5), in the
-      same commit as the first real ingest code; constant-time `Secret::verify`.
-- [ ] Egress supervisor per room: header cache, fan-out to all egresses incl. `FileEgress`,
-      per-destination status (connecting / live / degraded / reconnecting / failed, bitrate,
-      drops).
-- [ ] Destinations UI: name, URL, key (masked, stored in the browser, absent from exports).
-- [ ] Integration test: in-process `rml_rtmp` server session accepts a publish and receives
-      the tags; a reconnect test with a dropped socket.
+- [x] Signaling socket `/ws/room/<id>`: producer auth with `PROSTOR_SECRET`, `start_stream`
+      carrying destinations + keys (memory only, redacted `Debug`), `stop_stream`; typed
+      messages in `prostor-model` (ts-rs). Per-destination status reaches the producer in
+      the ingest socket's `egress_status`, which the studio already shows.
+- [x] `RtmpEgress` (ADR 0004): tokio TCP + `tokio-rustls` for `rtmps://`, per-destination
+      task with a bounded ~2 s queue, drop-until-keyframe decided with `Tag::class()`,
+      reconnect with backoff resending cached headers and rebasing timestamps,
+      `SetPeerBandwidth` tolerated. Audio is dropped only while a queue is full or the
+      connection is down (the supervisor never blocks the ingest socket on one egress).
+- [x] Connect-time safety (review #16): resolve the destination host and refuse
+      loopback, link-local and private ranges unless `PROSTOR_ALLOW_PRIVATE_DESTINATIONS`;
+      connect, publish and write timeouts.
+- [x] Producer auth + `Origin` check on both WebSocket upgrades (review #5): same-origin by
+      default, `PROSTOR_ALLOWED_ORIGINS` otherwise; constant-time `Secret::verify`.
+- [x] Egress supervisor per session: header cache, fan-out to all egresses incl.
+      `FileEgress`, per-destination status (starting / live / degraded / reconnecting /
+      failed / stopped, bytes, drops, reconnects, detail).
+- [x] Destinations UI: name, URL, key (masked, stored in the browser, absent from exports).
+- [x] Integration test: in-process `rml_rtmp` server session accepts a publish and receives
+      the tags; a reconnect test with a dropped socket; a declaration driven through a real
+      ingest session; `just e2e` streams to an ffmpeg RTMP listener too.
 - [ ] Manual platform test with the maintainer's keys; record reconnect behaviour per
       platform (YouTube vs Twitch) in `docs/spikes/0002`; accept ADR 0004.
 - [ ] `FfmpegEgress` only if the pure-Rust path stalls (brief §4, same trait).

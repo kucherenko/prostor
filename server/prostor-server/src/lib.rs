@@ -12,5 +12,7 @@ pub mod config;
 pub mod egress;
 pub mod ingest;
 pub mod room;
+pub mod rooms;
 pub mod shutdown;
+pub mod signaling;
 pub mod ws;

@@ -26,6 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         web_dir = %config.web_dir.display(),
         recordings_dir = %config.recordings_dir.display(),
         auth = if config.secret.is_some() { "required" } else { "none" },
+        origins = if config.allowed_origins.is_empty() { "same-origin".to_owned() } else { config.allowed_origins.join(",") },
+        private_destinations = config.allow_private_destinations,
         "starting prostor"
     );
     if config.secret.is_none() && !config.listen.ip().is_loopback() {

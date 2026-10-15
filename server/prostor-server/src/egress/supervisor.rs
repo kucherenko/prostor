@@ -5,9 +5,11 @@
 //! header first, audio sequence header before the first audio frame), caches the
 //! sequence headers, starts every egress with them on the first media frame, and then
 //! forwards tags. Each egress runs in its own task behind a bounded queue
-//! ([`QUEUE_CAPACITY`]); when the queue is full, video delta frames are dropped for that
-//! egress until its next keyframe, while audio, keyframes and sequence headers always
-//! wait for room. Drops are counted per egress and shown as [`EgressPhase::Degraded`].
+//! ([`QUEUE_CAPACITY`]). `push` never waits for an egress: a full queue drops the tag for
+//! that egress, and after a drop its video is skipped until the next keyframe (audio
+//! frames are independent and keep going while there is room). One slow or reconnecting
+//! destination therefore never stalls the ingest socket, the recording or the other
+//! destinations. Drops are counted per egress and shown as [`EgressPhase::Degraded`].
 //!
 //! [`Supervisor::acked_seq`] is what the server acknowledges to the browser: the newest
 //! sequence number every live egress has consumed.
@@ -21,7 +23,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use super::{Egress, StreamHeaders, metadata_tag};
+use super::{Delivery, Egress, StreamHeaders, metadata_tag};
 use crate::room::RoomId;
 
 /// Tags queued per egress before delta frames are dropped: about two seconds of a
@@ -68,7 +70,7 @@ struct Slot {
 impl Slot {
     fn snapshot(&self) -> EgressState {
         let mut state = self.state.borrow().clone();
-        state.dropped = self.dropped;
+        state.dropped += self.dropped;
         if state.state == EgressPhase::Live && self.dropping {
             state.state = EgressPhase::Degraded;
         }
@@ -131,6 +133,8 @@ impl Supervisor {
             tags: 0,
             dropped: 0,
             last_seq: 0,
+            reconnects: 0,
+            detail: None,
         };
         let (state, _) = watch::channel(initial);
         let task = tokio::spawn(run(egress, rx, state.clone(), self.room.clone()));
@@ -174,8 +178,8 @@ impl Supervisor {
         self.slots.iter().map(Slot::snapshot).collect()
     }
 
-    /// Validates and forwards one tag. Waits when an egress queue is full, except for
-    /// delta frames, which are dropped for that egress until its next keyframe.
+    /// Validates and forwards one tag. Never waits: a full egress queue drops the tag for
+    /// that egress, and its video is then skipped until the next keyframe.
     pub async fn push(&mut self, seq: u32, tag: TagBuf) -> Result<(), SupervisorError> {
         if seq <= self.last_seq {
             return Err(SupervisorError::Protocol("sequence numbers must increase"));
@@ -253,32 +257,23 @@ impl Supervisor {
             if !slot.is_live() {
                 continue;
             }
-            match class {
-                TagClass::Delta => {
-                    if slot.dropping {
-                        slot.dropped += 1;
-                        continue;
-                    }
-                    match slot.tx.try_send(Command::Tag(seq, tag.clone())) {
-                        Ok(()) => {}
-                        Err(mpsc::error::TrySendError::Full(_)) => {
-                            slot.dropped += 1;
-                            slot.dropping = true;
-                        }
-                        Err(mpsc::error::TrySendError::Closed(_)) => {}
-                    }
-                }
-                TagClass::Key
-                | TagClass::Audio
-                | TagClass::SequenceHeader
-                | TagClass::EndOfSequence
-                | TagClass::Script => {
+            if class == TagClass::Delta && slot.dropping {
+                slot.dropped += 1;
+                continue;
+            }
+            match slot.tx.try_send(Command::Tag(seq, tag.clone())) {
+                Ok(()) => {
                     if class == TagClass::Key {
                         slot.dropping = false;
                     }
-                    // A full queue means waiting, never dropping, for these.
-                    let _ = slot.tx.send(Command::Tag(seq, tag.clone())).await;
                 }
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    slot.dropped += 1;
+                    if tag.kind == TagKind::Video {
+                        slot.dropping = true;
+                    }
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {}
             }
         }
     }
@@ -331,22 +326,38 @@ async fn run(
         tracing::warn!(%room, %id, %error, "egress failed to {what}");
         state.send_modify(|s| s.state = EgressPhase::Failed);
     };
+    let publish_health = |egress: &dyn Egress| {
+        let health = egress.health();
+        state.send_modify(|s| {
+            s.state = health.phase;
+            s.reconnects = health.reconnects;
+            s.detail = health.detail;
+        });
+    };
     let mut started = false;
     loop {
         match rx.recv().await {
             Some(Command::Start(headers)) => match egress.start(&headers).await {
                 Ok(()) => {
                     started = true;
-                    state.send_modify(|s| s.state = EgressPhase::Live);
+                    publish_health(egress.as_ref());
                 }
                 Err(e) => return fail("start", &e),
             },
             Some(Command::Tag(seq, tag)) => match egress.push(seq, &tag).await {
-                Ok(()) => state.send_modify(|s| {
-                    s.tags += 1;
-                    s.bytes += tag.as_tag().wire_len() as u64;
-                    s.last_seq = seq;
-                }),
+                Ok(delivery) => {
+                    state.send_modify(|s| {
+                        match delivery {
+                            Delivery::Sent => {
+                                s.tags += 1;
+                                s.bytes += tag.as_tag().wire_len() as u64;
+                            }
+                            Delivery::Dropped => s.dropped += 1,
+                        }
+                        s.last_seq = seq;
+                    });
+                    publish_health(egress.as_ref());
+                }
                 Err(e) => return fail("write", &e),
             },
             Some(Command::Stop(done)) => {
@@ -453,7 +464,7 @@ mod tests {
             Ok(())
         }
 
-        async fn push(&mut self, seq: u32, tag: &TagBuf) -> Result<(), EgressError> {
+        async fn push(&mut self, seq: u32, tag: &TagBuf) -> Result<Delivery, EgressError> {
             let mut gate = self.gate.clone();
             gate.wait_for(|blocked| !*blocked).await.unwrap();
             self.log
@@ -461,7 +472,7 @@ mod tests {
                 .unwrap()
                 .tags
                 .push((seq, tag.as_tag().class().unwrap()));
-            Ok(())
+            Ok(Delivery::Sent)
         }
 
         async fn stop(&mut self) -> Result<(), EgressError> {
@@ -596,6 +607,7 @@ mod tests {
 
         // Release the egress; the queue drains, but deltas stay dropped until a keyframe.
         gate.send(false).unwrap();
+        tokio::task::yield_now().await;
         let mut seq = 4 + burst;
         for i in 0..10 {
             sup.push(seq, audio(i)).await.unwrap();
@@ -643,6 +655,111 @@ mod tests {
             states[0].tags + states[0].dropped + 2,
             "received = consumed + dropped + 2 cached headers"
         );
+    }
+
+    #[tokio::test]
+    async fn a_full_queue_never_blocks_the_caller_and_resumes_at_a_keyframe() {
+        let (mut sup, log, gate) = supervisor_with_test_egress(false);
+        sup.push(1, video_header()).await.unwrap();
+        sup.push(2, audio_header()).await.unwrap();
+        gate.send(true).unwrap();
+        sup.push(3, key(0)).await.unwrap();
+        tokio::task::yield_now().await;
+        // Fill the queue completely, then keep pushing everything: audio, keyframes and
+        // sequence headers included. Every push must return at once.
+        let mut seq = 4;
+        for i in 0..QUEUE_CAPACITY as u32 {
+            sup.push(seq, audio(i)).await.unwrap();
+            seq += 1;
+        }
+        let pushed = tokio::time::timeout(Duration::from_millis(200), async {
+            for i in 0..20 {
+                sup.push(seq, audio(1000 + i)).await.unwrap();
+                seq += 1;
+                sup.push(seq, key(1000 + i)).await.unwrap();
+                seq += 1;
+                sup.push(seq, video_header()).await.unwrap();
+                seq += 1;
+            }
+        })
+        .await;
+        assert!(pushed.is_ok(), "pushes into a full queue must not wait");
+        let state = &sup.states()[0];
+        assert_eq!(
+            state.dropped, 60,
+            "everything after the queue filled was dropped"
+        );
+        assert_eq!(state.state, EgressPhase::Degraded);
+
+        gate.send(false).unwrap();
+        tokio::task::yield_now().await;
+        sup.push(seq, delta(2000)).await.unwrap();
+        seq += 1;
+        assert_eq!(
+            sup.states()[0].dropped,
+            61,
+            "video stays off until a keyframe"
+        );
+        sup.push(seq, key(2001)).await.unwrap();
+        seq += 1;
+        sup.push(seq, delta(2002)).await.unwrap();
+        let states = sup.stop(Duration::from_secs(1)).await;
+        assert_eq!(states[0].dropped, 61);
+        let log = log.lock().unwrap();
+        let tail: Vec<TagClass> = log.tags.iter().rev().take(2).map(|(_, c)| *c).collect();
+        assert_eq!(tail, vec![TagClass::Delta, TagClass::Key]);
+    }
+
+    #[tokio::test]
+    async fn egress_side_drops_and_health_show_in_the_state() {
+        struct Flaky {
+            pushes: u32,
+        }
+        #[async_trait]
+        impl Egress for Flaky {
+            fn id(&self) -> &str {
+                "flaky"
+            }
+            fn kind(&self) -> EgressKind {
+                EgressKind::Rtmp
+            }
+            async fn start(&mut self, _: &StreamHeaders) -> Result<(), EgressError> {
+                Ok(())
+            }
+            async fn push(&mut self, _: u32, _: &TagBuf) -> Result<Delivery, EgressError> {
+                self.pushes += 1;
+                Ok(if self.pushes.is_multiple_of(2) {
+                    Delivery::Dropped
+                } else {
+                    Delivery::Sent
+                })
+            }
+            async fn stop(&mut self) -> Result<(), EgressError> {
+                Ok(())
+            }
+            fn health(&self) -> super::super::Health {
+                super::super::Health {
+                    phase: if self.pushes.is_multiple_of(2) {
+                        EgressPhase::Reconnecting
+                    } else {
+                        EgressPhase::Live
+                    },
+                    reconnects: u64::from(self.pushes / 2),
+                    detail: (self.pushes.is_multiple_of(2)).then(|| "connection reset".to_owned()),
+                }
+            }
+        }
+        let mut sup = Supervisor::new(RoomId::parse("r").unwrap(), info()).unwrap();
+        sup.add(Box::new(Flaky { pushes: 0 }));
+        sup.push(1, video_header()).await.unwrap();
+        for i in 0..4u32 {
+            sup.push(2 + i, key(i)).await.unwrap();
+        }
+        let states = sup.stop(Duration::from_secs(1)).await;
+        assert_eq!((states[0].tags, states[0].dropped), (2, 2));
+        assert_eq!(states[0].reconnects, 2);
+        assert_eq!(states[0].state, EgressPhase::Stopped);
+        assert_eq!(states[0].detail.as_deref(), Some("connection reset"));
     }
 
     #[tokio::test]

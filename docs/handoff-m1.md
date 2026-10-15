@@ -1,17 +1,15 @@
-# Handoff: milestone M1 in progress
+# Handoff: Phase 0 milestones M1 and M2
 
-Written 2026-10-14 when the local session stopped; updated by the cloud session that
-built the server half. Read `CLAUDE.md`, `docs/plan-phase0.md` (M1 section) and
+Written 2026-10-14 when the local session stopped; updated by the cloud sessions that
+built M1 and M2. Read `CLAUDE.md`, `docs/plan-phase0.md` (M1 section) and
 `docs/review-backlog.md` first; ADRs 0003–0005 hold the design, `docs/protocol-ingest.md`
 the wire reference.
 
 ## State
 
-- `main`: foundations, spikes, review fixes; CI green (rust, wasm, web, docker, cargo-deny).
-- `feat/m1-tracer-bullet`: `65cd1ba` shared types (`prostor_model::{render, ingest}`,
-  `prostor_engine::layout::render_plan`, `prostor_protocol::ingest`, wasm `render_plan`,
-  TS types); `f447521` `Shutdown` primitives; `dfc0a03` review backlog; then the server
-  half of M1 (see below).
+- `main`: foundations, spikes, review fixes, M1 (PR #1 merged); the Docker cache-mount
+  fix is PR #2.
+- `feat/m2-rtmp-egress`: M2 (see "Done: M2" below), to be opened as a PR to `main`.
 - Maintainer decisions: Apache-2.0; pipeline-first order; "proceed with the implementation".
   Still open: AAC strategy (ADR 0005, option A recommended), a Twitch test key, a
   `spikes/webcodecs` run on any other producer OS.
@@ -64,13 +62,42 @@ the wire reference.
   only there; the Playwright Chromium has no WebCodecs encoders at all.
 - Backlog items 2 and 3 closed in `prostor-wasm` (BufferSource inputs, early window).
 
+## Done: M2 (RTMP egress to platforms)
+
+- `prostor_protocol::rtmp`: backlog 4, 6, 7, 8 fixed (terminal `Stopped`, query strings on
+  the key, non-`Start` statuses as rejections, variant-name-only errors).
+- `server/egress/rtmp.rs`: `RtmpEgress` (TCP, `tokio-rustls`, timeouts, private-address
+  policy, reconnect with backoff, header resend, timestamp rebase, keyframe wait, caught
+  panics, inbound cap). `Egress` reports `Delivery` and `Health`; the supervisor never
+  blocks on an egress queue (drops instead). `EgressState` gained `reconnecting`,
+  `reconnects`, `detail`.
+- `prostor_model::signaling` + `server/signaling.rs` + `server/rooms.rs`: `/ws/room` with
+  producer auth, `start_stream`/`stop_stream`; keys live in the room registry while the
+  socket is open; the ingest session adds one `RtmpEgress` per declared destination.
+  `Origin` check on both upgrades (`PROSTOR_ALLOWED_ORIGINS`), `PROSTOR_ALLOW_PRIVATE_DESTINATIONS`.
+- Web: `adapters/signaling.ts`, `adapters/destinations.ts` (localStorage), destinations
+  section on `/studio`, egress lines show reconnects and detail. `just e2e` also streams
+  to an ffmpeg RTMP listener and probes its file.
+- Tests: `tests/support/` has an in-process `rml_rtmp` server; `tests/rtmp_egress.rs`
+  (publish, reconnect after a dropped socket, refused key, unreachable, private policy),
+  `tests/signaling.rs` (auth, declarations, origins, a declaration driven through a real
+  ingest session with one good and one dead destination).
+- `docs/protocol-ingest.md` covers both sockets; plan M2 boxes ticked except the manual
+  platform test; backlog items 4–8 closed.
+
 ## Next
 
-1. Run the M1 check on macOS (hardware encoder + AAC): 60 s session, VLC playback, lag on
+1. Manual platform test with the maintainer's keys (plan M2, last two boxes): Twitch and
+   YouTube live within 10 s, unplug the network for 5 s, both recover, recording intact.
+   Record reconnect behaviour per platform in `docs/spikes/0002` and accept ADR 0004.
+   Watch for: the FP9 handshake, `flashVer`, the object-shaped `onMetaData` (ADR 0004
+   risks), and whether platforms accept a stream that restarts at timestamp 0 after a
+   reconnect.
+2. The M1 check on macOS (hardware encoder + AAC): 60 s session, VLC playback, lag on
    loopback, A/V offset with a clap; tune `AAC_PRIMING_SAMPLES` from the measurement.
-2. Review the first pass with fresh eyes (worker error paths, reconnect, the stop path
-   flushing both encoders), then a PR to `main`.
-3. M2 (RTMP egress) per the plan.
+3. A fresh review of M1 + M2 (worker error paths, the browser reconnect path, the
+   supervisor's drop policy under a wedged destination), then M3 (document, board editor,
+   scene editor) per the plan.
 
 ## Environment notes
 

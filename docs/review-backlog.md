@@ -14,29 +14,26 @@ milestone that touches the code, with a regression test each.
 - 3 (`TimestampMapper` throws on early audio): timestamps up to 200 ms before the origin
   map to 0 (`EARLY_WINDOW_MS`); the Worker pins the origin at session start and subtracts
   the AAC priming delay from audio.
+
+## Closed in M2
+
+- 4 (`Stopped` not terminal): input is ignored and nothing is sent after `stop`.
+- 5 (`rml_rtmp` decoders on hostile bytes): panics are caught per connection and turn into
+  a reconnect; inbound bytes are capped at 1 MiB per connection. A stack overflow from
+  deeply nested AMF0 is not catchable and remains open: the rewrite path of ADR 0004 is the
+  real fix, a bigger worker stack the stopgap if a platform ever sends such data.
+- 6 (query strings cut from the key): kept on the key by both `Target` constructors.
+- 7 (non-`Start` publish statuses ignored): any status answering a pending connect or
+  publish other than the accepting one is a rejection; connect/publish also have timeouts.
+- 8 (`Error` prints server bytes): variant names only.
+- Secret + `Origin` enforcement on both upgrades, and connect-time refusal of private
+  ranges with connect/handshake timeouts: done.
 - 9 (`IngestClientMessage` `Debug` prints `auth`): hand-written `Debug` with `<redacted>`.
 - 10 (`EgressState` u64 fields export as `bigint`): `#[ts(type = "number")]`.
 - 11 (`Close` dropped before the reply is flushed): `Peer` completes every close
   handshake, bounded by 2 s; tests assert the code the client sees.
 
 ## Warnings
-4. `core/prostor-protocol/src/rtmp.rs` `State::Stopped` is not terminal: late replies revive
-   the session and resend the key. Ignore input and emit nothing once stopped. (M2.)
-5. `core/prostor-protocol/src/rtmp.rs`: `rml_rtmp`'s own decoders on bytes from a
-   user-chosen destination can abort (10 000 nested AMF0 arrays on a 2 MiB stack),
-   panic on chunk-size/csid sequences ("capacity overflow") or on a command with fewer than
-   three values. Isolate each Publisher (dedicated thread, `catch_unwind`, bigger stack) and
-   pre-check inbound message sizes, or take ADR 0004's rewrite path. (M2.)
-6. `rtmp.rs` `parse_parts` cuts at the first `?`, dropping query parameters that belong to
-   the key or app (Twitch `?bandwidthtest=true`, YouTube `?backup=1`). `Target::new` and
-   `Target::parse` disagree; the unit test asserts the stripping. (M2.)
-7. `rtmp.rs` rejection mapping is a six-code allow-list that drops `level`; an error-level
-   `NetStream.Publish.*` other than `Start` (e.g. `Unauthorized`) leaves the session in
-   `RequestingStream` forever. Supervisor timeout in that state; treat any non-Start
-   publish status as a rejection. (M2.)
-8. `rtmp.rs` `Error` derives `Debug` and wraps `ClientSessionError`; a non-UTF-8 AMF0 string
-   from the server prints raw server bytes (possibly the key). Hand-written `Debug` with
-   variant names only. (M2.)
 12. `core/prostor-engine/src/layout.rs` `render_plan` clamps to the program instead of
     scaling from the 1920×1080 authoring space and ignores `crop`; on 1280×720 the sample
     title is invisible. (M3, or M1 if the program size becomes configurable.)
@@ -64,8 +61,5 @@ milestone that touches the code, with a regression test each.
 - Graceful shutdown covering WebSockets: done in M1 (`shutdown.rs` wired into `main` and
   both handlers; close 1001, recordings finalized, `DRAIN_TIMEOUT`, exit on the second
   signal).
-- Secret enforcement: done for the ingest socket in M1 (`hello.auth`). `Origin`
-  allow-list on both upgrades and auth on the signaling socket remain for M2.
-- Connect-time refusal of loopback/link-local/private ranges and connect/handshake
-  timeouts in the RTMP egress (M2).
+- Secret enforcement: ingest in M1, signaling and `Origin` in M2.
 - A `cargo-fuzz` job for `parse_tag`, `Demuxer`, `amf0::read_value`, `Header::parse`.

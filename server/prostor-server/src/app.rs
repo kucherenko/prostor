@@ -22,9 +22,12 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 
 use crate::{
     config::{Config, Secret},
+    egress::ConnectPolicy,
     ingest,
+    rooms::Rooms,
     shutdown::Shutdown,
-    ws::{self, Timeouts},
+    signaling,
+    ws::Timeouts,
 };
 
 /// Most WebSockets open at once (producer, guests, and a margin).
@@ -39,19 +42,45 @@ pub struct AppState {
     recordings_dir: PathBuf,
     shutdown: Shutdown,
     timeouts: Timeouts,
+    connect: ConnectPolicy,
+    allowed_origins: Arc<Vec<String>>,
+    rooms: Rooms,
     ingest_sessions: Arc<AtomicUsize>,
     probe_counter: Arc<AtomicU64>,
 }
 
+/// Knobs the tests turn; production uses the defaults derived from the config.
+#[derive(Debug, Clone, Copy)]
+pub struct Options {
+    pub timeouts: Timeouts,
+    pub connect: ConnectPolicy,
+}
+
+impl Options {
+    /// Production options for `config`.
+    pub fn from_config(config: &Config) -> Self {
+        Options {
+            timeouts: Timeouts::default(),
+            connect: ConnectPolicy {
+                allow_private: config.allow_private_destinations,
+                ..ConnectPolicy::default()
+            },
+        }
+    }
+}
+
 impl AppState {
-    fn new(config: &Config, shutdown: Shutdown, timeouts: Timeouts) -> Self {
+    fn new(config: &Config, shutdown: Shutdown, options: Options) -> Self {
         AppState {
             sockets: Arc::new(Semaphore::new(MAX_SOCKETS)),
             web: ServeDir::new(&config.web_dir),
             secret: config.secret.clone(),
             recordings_dir: config.recordings_dir.clone(),
             shutdown,
-            timeouts,
+            timeouts: options.timeouts,
+            connect: options.connect,
+            allowed_origins: Arc::new(config.allowed_origins.clone()),
+            rooms: Rooms::default(),
             ingest_sessions: Arc::new(AtomicUsize::new(0)),
             probe_counter: Arc::new(AtomicU64::new(0)),
         }
@@ -80,6 +109,21 @@ impl AppState {
     /// Socket timing.
     pub fn timeouts(&self) -> Timeouts {
         self.timeouts
+    }
+
+    /// How RTMP egresses connect and retry.
+    pub fn connect_policy(&self) -> ConnectPolicy {
+        self.connect
+    }
+
+    /// Origins allowed on WebSocket upgrades (empty: same-origin only).
+    pub fn allowed_origins(&self) -> &[String] {
+        &self.allowed_origins
+    }
+
+    /// Per-room state shared by the signaling and ingest handlers.
+    pub fn rooms(&self) -> &Rooms {
+        &self.rooms
     }
 
     /// Ingest sessions open right now.
@@ -125,18 +169,27 @@ impl Drop for SessionGuard {
 /// web app as static files with an SPA fallback to `index.html` for app routes.
 /// Handlers watch `shutdown` and are tracked by it.
 pub fn router(config: &Config, shutdown: Shutdown) -> Router {
-    router_with_timeouts(config, shutdown, Timeouts::default())
+    router_with_options(config, shutdown, Options::from_config(config))
 }
 
 /// [`router`] with custom socket timing (tests).
 pub fn router_with_timeouts(config: &Config, shutdown: Shutdown, timeouts: Timeouts) -> Router {
+    let options = Options {
+        timeouts,
+        ..Options::from_config(config)
+    };
+    router_with_options(config, shutdown, options)
+}
+
+/// [`router`] with every knob set (tests).
+pub fn router_with_options(config: &Config, shutdown: Shutdown, options: Options) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
-        .route("/ws/room/{id}", get(ws::room))
+        .route("/ws/room/{id}", get(signaling::room))
         .route("/ws/ingest/{room}", get(ingest::ingest))
         .fallback(static_files)
         .layer(TraceLayer::new_for_http().make_span_with(request_span))
-        .with_state(AppState::new(config, shutdown, timeouts))
+        .with_state(AppState::new(config, shutdown, options))
 }
 
 /// The request span: method and path only. The query string may carry tokens, so it is
@@ -157,6 +210,7 @@ async fn healthz(State(state): State<AppState>) -> Json<serde_json::Value> {
         "protocol": prostor_protocol::crate_version(),
         "recordings_dir_writable": writable,
         "ingest_sessions": state.ingest_sessions(),
+        "armed_rooms": state.rooms().armed_rooms(),
     }))
 }
 

@@ -6,6 +6,9 @@
 //   PROSTOR_SECRET=...        the server's secret, typed into the page (never in the URL)
 //   PROSTOR_CHROME=/path     optional; defaults to the installed Google Chrome
 //   PROSTOR_E2E_SECONDS=10   how long to stream
+//   PROSTOR_E2E_RTMP_URL=rtmp://127.0.0.1:1936/live  PROSTOR_E2E_RTMP_KEY=e2e
+//                            optional: declare this destination too (an ffmpeg listener)
+//   PROSTOR_E2E_RTMP_OUT=/path/received.flv   optional: ffprobe what the listener wrote
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
@@ -16,6 +19,9 @@ const url = new URL('/studio', process.env.PROSTOR_URL ?? 'http://localhost:8080
 const recordingsDir = process.env.PROSTOR_RECORDINGS_DIR;
 const secret = process.env.PROSTOR_SECRET ?? '';
 const seconds = Number(process.env.PROSTOR_E2E_SECONDS ?? 10);
+const rtmpUrl = process.env.PROSTOR_E2E_RTMP_URL ?? '';
+const rtmpKey = process.env.PROSTOR_E2E_RTMP_KEY ?? '';
+const rtmpOut = process.env.PROSTOR_E2E_RTMP_OUT ?? '';
 const room = `e2e-${Date.now().toString(36)}`;
 const timeout = 30_000;
 
@@ -78,6 +84,13 @@ try {
 	await page.type('[data-testid="room"]', room);
 	if (secret) await page.type('[data-testid="secret"]', secret);
 
+	if (rtmpUrl) {
+		await page.click('[data-testid="dest-add"]');
+		await page.type('[data-testid="dest-name-0"]', 'e2e');
+		await page.type('[data-testid="dest-url-0"]', rtmpUrl);
+		await page.type('[data-testid="dest-key-0"]', rtmpKey);
+	}
+
 	await page.click('[data-testid="open-camera"]');
 	await page.waitForFunction(
 		() => document.querySelector('[data-testid="phase"]')?.textContent === 'camera',
@@ -116,6 +129,19 @@ try {
 	result.error = await text('error');
 	if (result.error) problems.push(`page error: ${result.error}`);
 	result.finalStatus = { sent: await text('sent'), egress: await text('egress') };
+	result.egress = await page.evaluate(() =>
+		Array.from(document.querySelectorAll('[data-testid="egress"]')).map((e) => ({
+			id: e.getAttribute('data-egress'),
+			text: (e.textContent ?? '').replace(/\s+/g, ' ').trim()
+		}))
+	);
+	if (rtmpUrl) {
+		const rtmpLine = result.egress.find((e) => String(e.id).startsWith('rtmp-'));
+		if (!rtmpLine) problems.push('no rtmp egress in the status');
+		else if (!/^stopped /.test(rtmpLine.text ?? '')) problems.push(`rtmp egress: ${rtmpLine.text}`);
+		else if (/ 0 tags/.test(rtmpLine.text ?? ''))
+			problems.push(`rtmp egress sent nothing: ${rtmpLine.text}`);
+	}
 
 	const file = path.join(recordingsDir, result.recording ?? '');
 	if (!result.recording || !existsSync(file)) {
@@ -142,6 +168,31 @@ try {
 		if (duration < seconds - 2) problems.push(`duration ${duration}s is short of ${seconds}s`);
 		const video = probe.streams.find((s) => s.codec_name === 'h264');
 		if (video && video.width !== 1920) problems.push(`video width ${video.width}`);
+	}
+	if (rtmpOut) {
+		// The listener (ffmpeg) finalises its file when the publisher sends deleteStream.
+		let probed = null;
+		for (let attempt = 0; attempt < 50 && !probed; attempt++) {
+			try {
+				probed = JSON.parse(
+					execFileSync(
+						'ffprobe',
+						['-v', 'error', '-show_streams', '-show_format', '-of', 'json', rtmpOut],
+						{ encoding: 'utf8' }
+					)
+				);
+			} catch {
+				await new Promise((r) => setTimeout(r, 200));
+			}
+		}
+		if (!probed) problems.push(`rtmp listener output not probeable: ${rtmpOut}`);
+		else {
+			const codecs = probed.streams.map((s) => s.codec_name);
+			const duration = Number(probed.format?.duration ?? 0);
+			result.rtmp = { codecs, duration, bytes: statSync(rtmpOut).size };
+			if (!codecs.includes('h264')) problems.push(`rtmp output has no h264 stream: ${codecs}`);
+			if (duration < seconds - 3) problems.push(`rtmp output duration ${duration}s is short`);
+		}
 	}
 } catch (error) {
 	if (!problems.length) problems.push(String(error?.stack ?? error));

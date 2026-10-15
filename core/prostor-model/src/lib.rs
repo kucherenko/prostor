@@ -15,12 +15,17 @@
 
 pub mod ingest;
 pub mod render;
+pub mod signaling;
 
 pub use ingest::{
     EgressKind, EgressPhase, EgressState, IngestClientMessage, IngestErrorCode,
     IngestServerMessage, StreamInfo,
 };
 pub use render::{RenderLayer, RenderPlan};
+pub use signaling::{
+    DestinationSpec, DestinationSummary, PeerRole, RoomClientMessage, RoomErrorCode,
+    RoomServerMessage,
+};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

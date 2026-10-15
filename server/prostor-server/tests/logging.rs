@@ -53,6 +53,8 @@ async fn request_logs_carry_the_path_but_never_the_query_string() {
         web_dir: dir.path().to_path_buf(),
         recordings_dir: dir.path().join("recordings"),
         secret: None,
+        allowed_origins: vec![],
+        allow_private_destinations: false,
     };
     let app = app::router(&config, Shutdown::new());
     let response = app
