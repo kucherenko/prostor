@@ -1,6 +1,12 @@
 //! The axum router and the application state shared by handlers.
 
-use std::{path::Path as FsPath, sync::Arc};
+use std::{
+    path::{Path as FsPath, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
+};
 
 use axum::{
     Json, Router,
@@ -14,7 +20,12 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tower::ServiceExt;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 
-use crate::{config::Config, ws};
+use crate::{
+    config::{Config, Secret},
+    ingest,
+    shutdown::Shutdown,
+    ws::{self, Timeouts},
+};
 
 /// Most WebSockets open at once (producer, guests, and a margin).
 pub const MAX_SOCKETS: usize = 64;
@@ -24,13 +35,25 @@ pub const MAX_SOCKETS: usize = 64;
 pub struct AppState {
     sockets: Arc<Semaphore>,
     web: ServeDir,
+    secret: Option<Secret>,
+    recordings_dir: PathBuf,
+    shutdown: Shutdown,
+    timeouts: Timeouts,
+    ingest_sessions: Arc<AtomicUsize>,
+    probe_counter: Arc<AtomicU64>,
 }
 
 impl AppState {
-    fn new(config: &Config) -> Self {
+    fn new(config: &Config, shutdown: Shutdown, timeouts: Timeouts) -> Self {
         AppState {
             sockets: Arc::new(Semaphore::new(MAX_SOCKETS)),
             web: ServeDir::new(&config.web_dir),
+            secret: config.secret.clone(),
+            recordings_dir: config.recordings_dir.clone(),
+            shutdown,
+            timeouts,
+            ingest_sessions: Arc::new(AtomicUsize::new(0)),
+            probe_counter: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -38,18 +61,82 @@ impl AppState {
     pub fn socket_permit(&self) -> Option<OwnedSemaphorePermit> {
         self.sockets.clone().try_acquire_owned().ok()
     }
+
+    /// The producer secret, when one is configured.
+    pub fn secret(&self) -> Option<&Secret> {
+        self.secret.as_ref()
+    }
+
+    /// Where recordings are written.
+    pub fn recordings_dir(&self) -> &FsPath {
+        &self.recordings_dir
+    }
+
+    /// The shutdown every long-lived handler watches.
+    pub fn shutdown(&self) -> &Shutdown {
+        &self.shutdown
+    }
+
+    /// Socket timing.
+    pub fn timeouts(&self) -> Timeouts {
+        self.timeouts
+    }
+
+    /// Ingest sessions open right now.
+    pub fn ingest_sessions(&self) -> usize {
+        self.ingest_sessions.load(Ordering::Relaxed)
+    }
+
+    /// Counts an ingest session for as long as the guard lives.
+    pub(crate) fn ingest_session(&self) -> SessionGuard {
+        self.ingest_sessions.fetch_add(1, Ordering::Relaxed);
+        SessionGuard(self.ingest_sessions.clone())
+    }
+
+    /// Whether a file can be created in the recordings directory right now.
+    async fn recordings_dir_writable(&self) -> bool {
+        let n = self.probe_counter.fetch_add(1, Ordering::Relaxed);
+        let probe = self
+            .recordings_dir
+            .join(format!(".healthz-{}-{n}", std::process::id()));
+        let created = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)
+            .await
+            .is_ok();
+        if created {
+            let _ = tokio::fs::remove_file(&probe).await;
+        }
+        created
+    }
+}
+
+/// Decrements the ingest session count on drop.
+pub(crate) struct SessionGuard(Arc<AtomicUsize>);
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// Builds the router: health check, signaling and ingest WebSockets, and the
 /// web app as static files with an SPA fallback to `index.html` for app routes.
-pub fn router(config: &Config) -> Router {
+/// Handlers watch `shutdown` and are tracked by it.
+pub fn router(config: &Config, shutdown: Shutdown) -> Router {
+    router_with_timeouts(config, shutdown, Timeouts::default())
+}
+
+/// [`router`] with custom socket timing (tests).
+pub fn router_with_timeouts(config: &Config, shutdown: Shutdown, timeouts: Timeouts) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/ws/room/{id}", get(ws::room))
-        .route("/ws/ingest/{room}", get(ws::ingest))
+        .route("/ws/ingest/{room}", get(ingest::ingest))
         .fallback(static_files)
         .layer(TraceLayer::new_for_http().make_span_with(request_span))
-        .with_state(AppState::new(config))
+        .with_state(AppState::new(config, shutdown, timeouts))
 }
 
 /// The request span: method and path only. The query string may carry tokens, so it is
@@ -62,11 +149,14 @@ fn request_span(request: &Request) -> tracing::Span {
     )
 }
 
-async fn healthz() -> Json<serde_json::Value> {
+async fn healthz(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let writable = state.recordings_dir_writable().await;
     Json(serde_json::json!({
-        "status": "ok",
+        "status": if writable { "ok" } else { "degraded" },
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": prostor_protocol::crate_version(),
+        "recordings_dir_writable": writable,
+        "ingest_sessions": state.ingest_sessions(),
     }))
 }
 

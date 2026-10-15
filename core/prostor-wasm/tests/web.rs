@@ -2,11 +2,88 @@
 
 #![cfg(target_arch = "wasm32")]
 
-use prostor_model::{LayerKind, Scene};
+use js_sys::{ArrayBuffer, DataView, Uint8Array};
+use prostor_model::{LayerKind, RenderPlan, Scene};
 use prostor_protocol::flv::{AvcPacketType, Header, MAX_BODY_LEN, TagKind, parse_exact, parse_tag};
+use prostor_wasm::BufferSource;
+use wasm_bindgen::JsCast;
 use wasm_bindgen_test::{wasm_bindgen_test, wasm_bindgen_test_configure};
 
 wasm_bindgen_test_configure!(run_in_browser);
+
+fn typed_array(bytes: &[u8]) -> BufferSource {
+    Uint8Array::from(bytes).unchecked_into()
+}
+
+fn array_buffer(bytes: &[u8]) -> BufferSource {
+    Uint8Array::from(bytes).buffer().unchecked_into()
+}
+
+/// A `DataView` over the middle of a larger buffer: offset and length must be honoured.
+fn data_view(bytes: &[u8]) -> BufferSource {
+    let mut padded = vec![0xEE; 3];
+    padded.extend_from_slice(bytes);
+    padded.extend_from_slice(&[0xEE; 2]);
+    let buffer: ArrayBuffer = Uint8Array::from(&padded[..]).buffer();
+    DataView::new(&buffer, 3, bytes.len()).unchecked_into()
+}
+
+#[wasm_bindgen_test]
+fn sequence_headers_accept_every_buffer_source_shape_and_refuse_empty_ones() {
+    let config = [1u8, 0x4d, 0, 0x28, 0xff, 0xe1, 0, 1, 0x67];
+    let mut expected = None;
+    for (name, source) in [
+        ("typed array", typed_array(&config)),
+        ("ArrayBuffer", array_buffer(&config)),
+        ("DataView", data_view(&config)),
+    ] {
+        let mut muxer = prostor_wasm::FlvMuxer::new(true, true);
+        let tag = muxer.video_sequence_header(0.0, &source).unwrap().to_vec();
+        let parsed = parse_exact(&tag).unwrap();
+        assert_eq!(parsed.video().unwrap().data, &config, "{name}");
+        let bytes = expected.get_or_insert(tag.clone());
+        assert_eq!(*bytes, tag, "{name}: identical output");
+        let audio = muxer
+            .audio_sequence_header(0.0, &array_buffer(&[0x11, 0x90]))
+            .unwrap()
+            .to_vec();
+        assert_eq!(
+            parse_exact(&audio).unwrap().audio().unwrap().data,
+            &[0x11, 0x90]
+        );
+    }
+
+    let mut muxer = prostor_wasm::FlvMuxer::new(true, true);
+    assert!(muxer.video_sequence_header(0.0, &typed_array(&[])).is_err());
+    assert!(
+        muxer
+            .video_sequence_header(0.0, &array_buffer(&[]))
+            .is_err()
+    );
+    assert!(muxer.audio_sequence_header(0.0, &typed_array(&[])).is_err());
+    let not_a_buffer: BufferSource = wasm_bindgen::JsValue::from_str("bytes").unchecked_into();
+    assert!(muxer.video_sequence_header(0.0, &not_a_buffer).is_err());
+    assert_eq!(
+        muxer.origin(),
+        None,
+        "refused input does not touch the clock"
+    );
+    assert_eq!(muxer.tags_written(), 0.0);
+}
+
+#[wasm_bindgen_test]
+fn compensated_audio_slightly_before_the_origin_lands_at_zero() {
+    let mut muxer = prostor_wasm::FlvMuxer::new(true, true);
+    muxer.set_origin(10_000.0).unwrap();
+    let early = muxer.audio(10_000.0 - 44.0, &[1]).unwrap().to_vec();
+    assert_eq!(parse_exact(&early).unwrap().timestamp_ms, 0);
+    let later = muxer.audio(10_000.0 + 21.3, &[1]).unwrap().to_vec();
+    assert_eq!(parse_exact(&later).unwrap().timestamp_ms, 21);
+    assert!(
+        muxer.audio(10_000.0 - 1000.0, &[1]).is_err(),
+        "a second before the origin is a clock error"
+    );
+}
 
 #[wasm_bindgen_test]
 fn hello_scene_round_trips_through_js() {
@@ -20,6 +97,26 @@ fn hello_scene_round_trips_through_js() {
 #[wasm_bindgen_test]
 fn version_matches_the_crate() {
     assert_eq!(prostor_wasm::version(), env!("CARGO_PKG_VERSION"));
+}
+
+#[wasm_bindgen_test]
+fn render_plan_orders_the_sample_scene_for_the_program() {
+    let scene = prostor_wasm::hello_scene().unwrap();
+    let plan = prostor_wasm::render_plan(scene, 1280, 720).expect("plan serializes");
+    let plan: RenderPlan = serde_wasm_bindgen::from_value(plan).expect("deserializes back");
+    assert_eq!((plan.width, plan.height), (1280, 720));
+    assert_eq!(plan.layers.len(), 2);
+    assert!(matches!(plan.layers[0].kind, LayerKind::Camera));
+    assert!(matches!(plan.layers[1].kind, LayerKind::Text { .. }));
+    assert_eq!(
+        (plan.layers[0].rect.w, plan.layers[0].rect.h),
+        (1280.0, 720.0),
+        "the full-frame camera is clamped to the 720p program"
+    );
+    assert!(plan.layers.iter().all(|l| l.opacity == 1.0));
+
+    let err = prostor_wasm::render_plan(wasm_bindgen::JsValue::from_str("nope"), 1, 1);
+    assert!(err.is_err(), "a non-scene value is an error, not a panic");
 }
 
 #[wasm_bindgen_test]
@@ -47,7 +144,7 @@ fn flv_muxer_produces_parseable_tags_with_rebased_timestamps() {
     muxer.set_origin(1_000_000.0).unwrap();
     assert_eq!(muxer.origin(), Some(1_000_000.0));
     let sequence = muxer
-        .video_sequence_header(1_000_000.0, &[1, 0x64, 0, 0x28, 0xff, 0xe1])
+        .video_sequence_header(1_000_000.0, &typed_array(&[1, 0x64, 0, 0x28, 0xff, 0xe1]))
         .unwrap()
         .to_vec();
     let (tag, _) = parse_tag(&sequence).unwrap().unwrap();
@@ -93,7 +190,7 @@ fn flv_muxer_rejects_bad_timestamps_and_oversized_bodies() {
         "rejected timestamps do not set the origin"
     );
     assert!(muxer.audio(10.0, &[1]).is_ok());
-    assert!(muxer.audio(-1.0, &[1]).is_err(), "before the origin");
+    assert!(muxer.audio(-500.0, &[1]).is_err(), "well before the origin");
     assert!(
         muxer.audio(4_294_967_296.0 + 10.0, &[1]).is_err(),
         "2^32 ms after the origin"

@@ -7,12 +7,49 @@
 
 #![forbid(unsafe_code)]
 
-use js_sys::Uint8Array;
+use js_sys::{ArrayBuffer, Reflect, Uint8Array};
 use prostor_model::{Layer, LayerId, LayerKind, Point, Rect, Scene, SceneId};
 use prostor_protocol::flv;
 use serde::Serialize;
 use std::fmt;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, prelude::*};
+
+#[wasm_bindgen]
+extern "C" {
+    /// An `ArrayBuffer` or any typed array / `DataView`: what WebCodecs hands out as
+    /// `decoderConfig.description`.
+    #[wasm_bindgen(typescript_type = "BufferSource")]
+    pub type BufferSource;
+}
+
+/// Copies a `BufferSource` into a `Vec`. wasm-bindgen's own `&[u8]` conversion reads
+/// `.length`, which an `ArrayBuffer` lacks, so a description passed as a bare buffer
+/// used to arrive as zero bytes; this handles every shape and refuses empty input.
+fn buffer_source_bytes(value: &BufferSource, what: &str) -> Result<Vec<u8>, JsError> {
+    let value: &JsValue = value.as_ref();
+    let bytes = if let Some(array) = value.dyn_ref::<Uint8Array>() {
+        array.to_vec()
+    } else if let Some(buffer) = value.dyn_ref::<ArrayBuffer>() {
+        Uint8Array::new(buffer).to_vec()
+    } else if ArrayBuffer::is_view(value) {
+        let field = |name: &str| {
+            Reflect::get(value, &JsValue::from_str(name))
+                .map_err(|_| JsError::new(&format!("{what}: cannot read {name}")))
+        };
+        let buffer = field("buffer")?;
+        let offset = field("byteOffset")?.as_f64().unwrap_or(0.0) as u32;
+        let length = field("byteLength")?.as_f64().unwrap_or(0.0) as u32;
+        Uint8Array::new_with_byte_offset_and_length(&buffer, offset, length).to_vec()
+    } else {
+        return Err(JsError::new(&format!(
+            "{what} must be an ArrayBuffer or a typed array"
+        )));
+    };
+    if bytes.is_empty() {
+        return Err(JsError::new(&format!("{what} is empty")));
+    }
+    Ok(bytes)
+}
 
 /// Runs once when the module is instantiated (`init()` on the JS side).
 #[wasm_bindgen(start)]
@@ -32,6 +69,14 @@ pub fn version() -> String {
 #[wasm_bindgen]
 pub fn hello_scene() -> Result<JsValue, JsValue> {
     to_js(&sample_scene())
+}
+
+/// Computes the compositor's drawing instructions for `scene` (a plain object matching the
+/// generated `Scene` type) on a `width × height` program. Returns a `RenderPlan` object.
+#[wasm_bindgen]
+pub fn render_plan(scene: JsValue, width: u32, height: u32) -> Result<JsValue, JsValue> {
+    let scene: Scene = serde_wasm_bindgen::from_value(scene)?;
+    to_js(&prostor_engine::render_plan(&scene, (width, height)))
 }
 
 /// Serializes a value into a JSON-compatible JS object (maps as objects,
@@ -101,10 +146,17 @@ impl std::error::Error for TimestampError {}
 /// Largest value the FLV timestamp field holds, plus one.
 const TIMESTAMP_LIMIT_MS: f64 = 4_294_967_296.0;
 
+/// Timestamps up to this much before the origin map to 0 instead of failing. Both
+/// tracks share one origin (the session start), and the first audio chunks land
+/// slightly before it once the AAC encoder's priming delay has been subtracted from
+/// their timestamps; anything earlier than this window is a real clock error.
+pub const EARLY_WINDOW_MS: f64 = 200.0;
+
 /// Turns the encoder's millisecond timestamps (an `f64` from JavaScript, possibly
 /// fractional) into FLV timestamps relative to a stream origin. The first timestamp seen
 /// becomes 0 unless [`TimestampMapper::set_origin`] was called; [`TimestampMapper::rebase`]
-/// starts a new origin, for a new connection that must begin at 0 again.
+/// starts a new origin, for a new connection that must begin at 0 again. Timestamps up
+/// to [`EARLY_WINDOW_MS`] before the origin clamp to 0 (see there); earlier ones fail.
 ///
 /// Plain Rust so the policy is tested natively; the wasm facade only forwards to it.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -146,7 +198,11 @@ impl TimestampMapper {
         let origin = *self.origin.get_or_insert(timestamp_ms);
         let relative = (timestamp_ms - origin).round();
         if relative < 0.0 {
-            return Err(TimestampError::BeforeOrigin);
+            return if relative >= -EARLY_WINDOW_MS {
+                Ok(0)
+            } else {
+                Err(TimestampError::BeforeOrigin)
+            };
         }
         if relative >= TIMESTAMP_LIMIT_MS {
             return Err(TimestampError::OutOfRange);
@@ -246,16 +302,18 @@ impl FlvMuxer {
     }
 
     /// Video sequence header: `decoderConfig.description` of the WebCodecs H.264 encoder
-    /// (the AVCDecoderConfigurationRecord).
+    /// (the AVCDecoderConfigurationRecord), as the `ArrayBuffer` or typed array WebCodecs
+    /// delivered it. Empty input is an error.
     pub fn video_sequence_header(
         &mut self,
         timestamp_ms: f64,
-        avc_config: &[u8],
+        avc_config: &BufferSource,
     ) -> Result<Uint8Array, JsError> {
+        let avc_config = buffer_source_bytes(avc_config, "AVC decoder configuration")?;
         let ts = self.clock.map(timestamp_ms)?;
         self.buf.clear();
         self.inner
-            .write_video_sequence_header(ts, avc_config, &mut self.buf)?;
+            .write_video_sequence_header(ts, &avc_config, &mut self.buf)?;
         Ok(self.finish())
     }
 
@@ -276,16 +334,18 @@ impl FlvMuxer {
     }
 
     /// Audio sequence header: `decoderConfig.description` of the WebCodecs AAC encoder
-    /// (the AudioSpecificConfig).
+    /// (the AudioSpecificConfig), as the `ArrayBuffer` or typed array WebCodecs delivered
+    /// it. Empty input is an error.
     pub fn audio_sequence_header(
         &mut self,
         timestamp_ms: f64,
-        audio_specific_config: &[u8],
+        audio_specific_config: &BufferSource,
     ) -> Result<Uint8Array, JsError> {
+        let config = buffer_source_bytes(audio_specific_config, "AudioSpecificConfig")?;
         let ts = self.clock.map(timestamp_ms)?;
         self.buf.clear();
         self.inner
-            .write_audio_sequence_header(ts, audio_specific_config, &mut self.buf)?;
+            .write_audio_sequence_header(ts, &config, &mut self.buf)?;
         Ok(self.finish())
     }
 
@@ -330,7 +390,16 @@ mod tests {
             Ok(0),
             "within rounding of the origin"
         );
-        assert_eq!(clock.map(999_999.0), Err(TimestampError::BeforeOrigin));
+        assert_eq!(
+            clock.map(999_999.0),
+            Ok(0),
+            "slightly early (priming-compensated audio) clamps to 0"
+        );
+        assert_eq!(clock.map(1_000_000.0 - EARLY_WINDOW_MS), Ok(0));
+        assert_eq!(
+            clock.map(1_000_000.0 - EARLY_WINDOW_MS - 1.0),
+            Err(TimestampError::BeforeOrigin)
+        );
     }
 
     #[test]
@@ -348,7 +417,8 @@ mod tests {
         assert_eq!(clock.map(4_294_967_295.4), Ok(u32::MAX));
         assert_eq!(clock.map(4_294_967_295.6), Err(TimestampError::OutOfRange));
         assert_eq!(clock.map(4_294_967_301.0), Err(TimestampError::OutOfRange));
-        assert_eq!(clock.map(-1.0), Err(TimestampError::BeforeOrigin));
+        assert_eq!(clock.map(-1.0), Ok(0), "inside the early window");
+        assert_eq!(clock.map(-1000.0), Err(TimestampError::BeforeOrigin));
     }
 
     #[test]
@@ -356,7 +426,8 @@ mod tests {
         let mut clock = TimestampMapper::new();
         clock.set_origin(500.0).unwrap();
         assert_eq!(clock.map(512.0), Ok(12));
-        assert_eq!(clock.map(499.0), Err(TimestampError::BeforeOrigin));
+        assert_eq!(clock.map(499.0), Ok(0));
+        assert_eq!(clock.map(200.0), Err(TimestampError::BeforeOrigin));
         assert_eq!(clock.set_origin(f64::NAN), Err(TimestampError::NotFinite));
         clock.rebase();
         assert_eq!(clock.origin(), None);

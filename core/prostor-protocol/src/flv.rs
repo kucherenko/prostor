@@ -681,6 +681,29 @@ impl Metadata {
     }
 }
 
+/// Appends a standalone `onMetaData` script tag (timestamp 0) describing `metadata` for the
+/// streams in `config`. The server uses it for recordings and RTMP sessions, where the
+/// browser sends media tags only; [`Muxer::write_metadata`] produces the same bytes.
+pub fn write_metadata_tag(
+    metadata: &Metadata,
+    config: MuxConfig,
+    out: &mut Vec<u8>,
+) -> Result<usize, Error> {
+    write_tag_with(TagKind::Script, 0, out, |out| {
+        write_metadata_body(metadata, config, out)
+    })
+}
+
+fn write_metadata_body(
+    metadata: &Metadata,
+    config: MuxConfig,
+    out: &mut Vec<u8>,
+) -> Result<(), Error> {
+    amf0::write_string("onMetaData", out)?;
+    amf0::write_value(&metadata.to_amf0(config), out)?;
+    Ok(())
+}
+
 /// FLV writer for one H.264 + AAC stream. Every method appends to the caller's buffer and
 /// returns the number of bytes appended; on error nothing is appended.
 #[derive(Debug)]
@@ -732,11 +755,9 @@ impl Muxer {
         metadata: &Metadata,
         out: &mut Vec<u8>,
     ) -> Result<usize, Error> {
-        let value = metadata.to_amf0(self.config);
+        let config = self.config;
         self.tag(TagKind::Script, 0, out, |out| {
-            amf0::write_string("onMetaData", out)?;
-            amf0::write_value(&value, out)?;
-            Ok(())
+            write_metadata_body(metadata, config, out)
         })
     }
 
@@ -1345,6 +1366,29 @@ mod tests {
             Some(10.0)
         );
         assert_eq!(value.get("stereo").and_then(Value::as_bool), Some(true));
+
+        let mut standalone = Vec::new();
+        let n = write_metadata_tag(&metadata(), config, &mut standalone).unwrap();
+        assert_eq!(n, standalone.len());
+        assert_eq!(
+            standalone, out,
+            "the standalone writer produces the muxer's bytes"
+        );
+        assert_eq!(
+            muxer.tags_written(),
+            1,
+            "the standalone writer counts nothing"
+        );
+
+        let video_only = MuxConfig {
+            video: true,
+            audio: false,
+        };
+        let mut without_audio = Vec::new();
+        write_metadata_tag(&metadata(), video_only, &mut without_audio).unwrap();
+        let (_, value) = parse_script_tag(parse_exact(&without_audio).unwrap().body).unwrap();
+        assert!(value.get("audiocodecid").is_none());
+        assert_eq!(value.get("videocodecid").and_then(Value::as_f64), Some(7.0));
     }
 
     #[test]

@@ -12,9 +12,12 @@ name = "prostor"
 path = "src/main.rs"
 
 [dependencies]
+prostor-model = { workspace = true }
 prostor-protocol = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
-tokio = { workspace = true, features = ["time", "sync"] }
+tokio = { workspace = true, features = ["time", "sync", "fs", "io-util"] }
+tokio-util = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }

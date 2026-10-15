@@ -20,7 +20,8 @@ pub struct Config {
     pub web_dir: PathBuf,
     /// Directory for FLV recordings. `PROSTOR_RECORDINGS_DIR`, default `recordings`.
     pub recordings_dir: PathBuf,
-    /// Shared producer secret. `PROSTOR_SECRET`; optional until auth lands (M2).
+    /// Shared producer secret. `PROSTOR_SECRET`. When set, every ingest session must
+    /// present it in `hello.auth`; when unset, the server should only listen on loopback.
     pub secret: Option<Secret>,
 }
 

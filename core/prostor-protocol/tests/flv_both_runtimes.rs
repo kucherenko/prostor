@@ -8,6 +8,7 @@ use prostor_protocol::flv::{
     AacPacketType, AvcPacketType, Demuxer, FrameType, Header, Metadata, MuxConfig, Muxer, TagClass,
     TagKind, parse_exact, parse_script_tag, parse_tag,
 };
+use prostor_protocol::ingest;
 use sha2::{Digest, Sha256};
 
 #[cfg(target_arch = "wasm32")]
@@ -296,4 +297,27 @@ fn incremental_reader_recovers_every_tag_of_the_fixture() {
     for (owned, (borrowed, _)) in tags.iter().zip(&parsed.tags) {
         assert_eq!(owned.as_tag(), *borrowed);
     }
+}
+
+/// The ingest framing (`u32 seq` + one tag) round-trips every media tag of the fixture
+/// in both runtimes: the browser encodes, the server parses.
+#[cfg_attr(not(target_arch = "wasm32"), test)]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test)]
+fn ingest_frames_carry_every_media_tag_of_the_fixture() {
+    let parsed = parse_all(FIXTURE);
+    let mut seq = 0u32;
+    for (tag, raw) in parsed
+        .tags
+        .iter()
+        .filter(|(t, _)| t.kind != TagKind::Script)
+    {
+        seq += 1;
+        let mut message = Vec::new();
+        ingest::encode_frame(seq, raw, &mut message);
+        let (parsed_seq, parsed_tag) = ingest::parse_frame(&message).unwrap();
+        assert_eq!(parsed_seq, seq);
+        assert_eq!(parsed_tag, *tag);
+        assert!(ingest::parse_frame(&message[..message.len() - 1]).is_err());
+    }
+    assert_eq!(seq, 82);
 }

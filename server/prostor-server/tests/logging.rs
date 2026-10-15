@@ -11,7 +11,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use prostor_server::{app, config::Config};
+use prostor_server::{app, config::Config, shutdown::Shutdown};
 use tower::ServiceExt;
 
 /// Captures everything the tracing subscriber writes.
@@ -54,7 +54,7 @@ async fn request_logs_carry_the_path_but_never_the_query_string() {
         recordings_dir: dir.path().join("recordings"),
         secret: None,
     };
-    let app = app::router(&config);
+    let app = app::router(&config, Shutdown::new());
     let response = app
         .oneshot(
             Request::get("/healthz?token=SENSITIVE-QUERY-TOKEN&x=1")
