@@ -5,6 +5,7 @@
 use std::{net::SocketAddr, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
+use prostor_model::{PeerRole, RoomClientMessage, RoomServerMessage};
 use prostor_server::{
     app::{self, MAX_SOCKETS},
     config::Config,
@@ -27,6 +28,7 @@ async fn serve_with(timeouts: Timeouts) -> (SocketAddr, tempfile::TempDir, Shutd
         web_dir: dir.path().to_path_buf(),
         recordings_dir: dir.path().join("recordings"),
         secret: None,
+        allowed_origins: vec![],
         allow_private_destinations: false,
     };
     std::fs::create_dir_all(&config.recordings_dir).unwrap();
@@ -73,6 +75,25 @@ async fn close_code(socket: &mut Socket) -> Option<u16> {
     }
 }
 
+/// Joins the room as a guest and waits for the welcome.
+async fn join(socket: &mut Socket) {
+    let hello = RoomClientMessage::Hello {
+        auth: None,
+        role: PeerRole::Guest,
+    };
+    socket
+        .send(Message::Text(serde_json::to_string(&hello).unwrap().into()))
+        .await
+        .unwrap();
+    match socket.next().await.unwrap().unwrap() {
+        Message::Text(text) => {
+            let welcome: RoomServerMessage = serde_json::from_str(&text).unwrap();
+            assert!(matches!(welcome, RoomServerMessage::Welcome { .. }));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
 /// Starts a client-side close with code 1000; the server echoes the code back.
 async fn close_normally(socket: &mut Socket) {
     socket
@@ -85,12 +106,10 @@ async fn close_normally(socket: &mut Socket) {
 }
 
 #[tokio::test]
-async fn room_echoes_text_and_completes_the_close_handshake() {
+async fn room_welcomes_and_completes_the_close_handshake() {
     let (addr, _dir, _shutdown) = serve().await;
     let mut room = connect(addr, "/ws/room/room-1").await.unwrap();
-    room.send(Message::Text("hello".into())).await.unwrap();
-    let echoed = room.next().await.unwrap().unwrap();
-    assert_eq!(echoed, Message::Text("hello".into()));
+    join(&mut room).await;
     close_normally(&mut room).await;
     assert_eq!(
         close_code(&mut room).await,
@@ -141,11 +160,7 @@ async fn oversized_messages_close_the_socket_and_the_server_survives() {
 
     // A well-behaved client still gets in afterwards.
     let mut again = connect(addr, "/ws/room/room-2").await.unwrap();
-    again.send(Message::Text("x".into())).await.unwrap();
-    assert_eq!(
-        again.next().await.unwrap().unwrap(),
-        Message::Text("x".into())
-    );
+    join(&mut again).await;
     again.close(None).await.unwrap();
 }
 
@@ -243,11 +258,7 @@ async fn the_socket_cap_answers_503_and_frees_up_again() {
 async fn shutdown_closes_open_sockets_with_1001_and_refuses_new_ones() {
     let (addr, _dir, shutdown) = serve().await;
     let mut room = connect(addr, "/ws/room/bye").await.unwrap();
-    room.send(Message::Text("ping".into())).await.unwrap();
-    assert_eq!(
-        room.next().await.unwrap().unwrap(),
-        Message::Text("ping".into())
-    );
+    join(&mut room).await;
 
     shutdown.cancel();
     assert_eq!(close_code(&mut room).await, Some(1001));

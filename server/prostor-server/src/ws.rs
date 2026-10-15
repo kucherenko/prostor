@@ -1,25 +1,20 @@
-//! WebSocket plumbing shared by the signaling and ingest endpoints, and the signaling
-//! endpoint itself (still a stub: the protocol is defined in the Phase 0 plan, M5).
+//! WebSocket plumbing shared by the signaling (`signaling.rs`) and ingest (`ingest.rs`)
+//! endpoints.
 //!
-//! What is real for every socket: room ids are validated, messages are size-limited,
-//! silent peers are closed after [`Timeouts::idle`], the server pings every
-//! [`Timeouts::ping`], the number of concurrent sockets is bounded, close handshakes are
-//! completed before the socket is dropped (so peers see the code we chose, not 1006),
+//! What holds for every socket: room ids are validated, the `Origin` is checked, messages
+//! are size-limited, silent peers are closed after [`Timeouts::idle`], the server pings
+//! every [`Timeouts::ping`], the number of concurrent sockets is bounded, close handshakes
+//! are completed before the socket is dropped (so peers see the code we chose, not 1006),
 //! and a shutdown closes every socket with 1001.
 
 use std::time::Duration;
 
 use axum::{
-    extract::{
-        Path, State, WebSocketUpgrade,
-        ws::{CloseFrame, Message, Utf8Bytes, WebSocket},
-    },
-    http::StatusCode,
+    extract::ws::{CloseFrame, Message, Utf8Bytes, WebSocket},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use tokio::{sync::OwnedSemaphorePermit, time::Instant};
-
-use crate::{app::AppState, room::RoomId, shutdown::Shutdown};
+use tokio::time::Instant;
 
 /// Largest ingest message: one FLV tag. A 1080p keyframe at 6 Mbit/s is ~150 KB.
 pub const INGEST_MAX_MESSAGE: usize = 4 * 1024 * 1024;
@@ -63,63 +58,35 @@ impl Default for Timeouts {
     }
 }
 
-/// `GET /ws/room/{id}`: signaling between the producer and the guests of a room.
-/// Stub: echoes text frames back to the sender.
-pub async fn room(
-    // Extractors run in order: the room id is validated before the upgrade is attempted,
-    // so a bad id is a 400 whether or not the request is a WebSocket handshake.
-    Path(id): Path<RoomId>,
-    State(state): State<AppState>,
-    ws: WebSocketUpgrade,
-) -> Response {
-    if state.shutdown().is_cancelled() {
-        return shutting_down();
-    }
-    let Some(permit) = state.socket_permit() else {
-        return too_many_sockets();
-    };
-    let shutdown = state.shutdown().clone();
-    let timeouts = state.timeouts();
-    ws.max_message_size(SIGNALING_MAX_MESSAGE)
-        .max_frame_size(SIGNALING_MAX_MESSAGE)
-        .on_upgrade(move |socket| {
-            shutdown
-                .clone()
-                .track(handle_room(socket, id, permit, timeouts, shutdown))
-        })
-}
-
-async fn handle_room(
-    socket: WebSocket,
-    room: RoomId,
-    _permit: OwnedSemaphorePermit,
-    timeouts: Timeouts,
-    shutdown: Shutdown,
-) {
-    tracing::info!(%room, "signaling peer joined");
-    let mut peer = Peer::new(socket, timeouts);
-    loop {
-        tokio::select! {
-            message = peer.next() => match message {
-                Some(Message::Text(text)) => {
-                    if peer.send(Message::Text(text)).await.is_err() {
-                        break;
-                    }
-                }
-                Some(_) => {}
-                None => break,
-            },
-            _ = shutdown.cancelled() => {
-                peer.close(CLOSE_GOING_AWAY, "server shutting down").await;
-                break;
-            }
-        }
-    }
-    tracing::info!(%room, "signaling peer left");
-}
-
 pub(crate) fn too_many_sockets() -> Response {
     (StatusCode::SERVICE_UNAVAILABLE, "too many open sockets").into_response()
+}
+
+pub(crate) fn forbidden_origin() -> Response {
+    (StatusCode::FORBIDDEN, "origin not allowed").into_response()
+}
+
+/// Whether a WebSocket upgrade may proceed given its `Origin`. Browsers always send one;
+/// a request without it (tests, tools) is allowed. With an allow-list configured, the
+/// origin must be listed; otherwise it must be the same origin the page was served from,
+/// i.e. its host and port must equal the `Host` header. Comparison is case-insensitive
+/// and a stray trailing slash is ignored.
+pub fn origin_allowed(headers: &HeaderMap, allowed: &[String]) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) else {
+        return true;
+    };
+    let origin = origin.trim().trim_end_matches('/').to_ascii_lowercase();
+    if !allowed.is_empty() {
+        return allowed.contains(&origin);
+    }
+    let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else {
+        return false;
+    };
+    let origin_host = origin
+        .split_once("://")
+        .map_or(origin.as_str(), |(_, rest)| rest)
+        .trim_end_matches('/');
+    origin_host == host.trim().to_ascii_lowercase()
 }
 
 pub(crate) fn shutting_down() -> Response {
@@ -228,5 +195,62 @@ impl Peer {
             while let Some(Ok(_)) = self.socket.recv().await {}
         })
         .await;
+    }
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers(origin: Option<&str>, host: Option<&str>) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        if let Some(origin) = origin {
+            map.insert(header::ORIGIN, HeaderValue::from_str(origin).unwrap());
+        }
+        if let Some(host) = host {
+            map.insert(header::HOST, HeaderValue::from_str(host).unwrap());
+        }
+        map
+    }
+
+    #[test]
+    fn same_origin_by_default() {
+        assert!(origin_allowed(&headers(None, Some("x:1")), &[]));
+        assert!(origin_allowed(
+            &headers(Some("http://Studio.local:8080"), Some("studio.local:8080")),
+            &[]
+        ));
+        assert!(origin_allowed(
+            &headers(Some("https://studio.local/"), Some("studio.local")),
+            &[]
+        ));
+        assert!(!origin_allowed(
+            &headers(Some("http://evil.example"), Some("studio.local")),
+            &[]
+        ));
+        assert!(!origin_allowed(
+            &headers(Some("http://studio.local:9000"), Some("studio.local:8080")),
+            &[]
+        ));
+        assert!(!origin_allowed(&headers(Some("http://a"), None), &[]));
+        assert!(!origin_allowed(&headers(Some("null"), Some("a")), &[]));
+    }
+
+    #[test]
+    fn allow_list_when_configured() {
+        let allowed = vec!["https://studio.example".to_owned()];
+        assert!(origin_allowed(
+            &headers(Some("https://Studio.example/"), Some("other")),
+            &allowed
+        ));
+        assert!(!origin_allowed(
+            &headers(
+                Some("https://studio.example:8443"),
+                Some("studio.example:8443")
+            ),
+            &allowed
+        ));
+        assert!(origin_allowed(&headers(None, None), &allowed));
     }
 }

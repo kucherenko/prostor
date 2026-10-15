@@ -23,6 +23,10 @@ pub struct Config {
     /// Shared producer secret. `PROSTOR_SECRET`. When set, every ingest session must
     /// present it in `hello.auth`; when unset, the server should only listen on loopback.
     pub secret: Option<Secret>,
+    /// Origins allowed to open WebSockets, lowercase `scheme://host[:port]`.
+    /// `PROSTOR_ALLOWED_ORIGINS`, comma-separated. Empty means same-origin only: the
+    /// `Origin` must match the `Host` the request came in on.
+    pub allowed_origins: Vec<String>,
     /// Let RTMP destinations resolve to loopback, link-local or private addresses.
     /// `PROSTOR_ALLOW_PRIVATE_DESTINATIONS` = `1` or `true`; off by default, so a producer
     /// cannot point the server's egress at the server's own network.
@@ -95,6 +99,12 @@ impl Config {
                 Some(Secret::new(value))
             }
         };
+        let allowed_origins = text("PROSTOR_ALLOWED_ORIGINS")?
+            .unwrap_or_default()
+            .split(',')
+            .map(|o| o.trim().trim_end_matches('/').to_ascii_lowercase())
+            .filter(|o| !o.is_empty())
+            .collect();
         let allow_private_destinations = text("PROSTOR_ALLOW_PRIVATE_DESTINATIONS")?
             .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes"));
         Ok(Self {
@@ -102,6 +112,7 @@ impl Config {
             web_dir: path(&lookup, "PROSTOR_WEB_DIR", "web/build"),
             recordings_dir: path(&lookup, "PROSTOR_RECORDINGS_DIR", "recordings"),
             secret,
+            allowed_origins,
             allow_private_destinations,
         })
     }
@@ -136,6 +147,7 @@ mod tests {
         assert_eq!(config.recordings_dir, PathBuf::from("recordings"));
         assert!(config.secret.is_none());
         assert!(!config.allow_private_destinations);
+        assert!(config.allowed_origins.is_empty());
     }
 
     #[test]
@@ -146,9 +158,20 @@ mod tests {
             ("PROSTOR_RECORDINGS_DIR", "/recordings"),
             ("PROSTOR_SECRET", "hunter2"),
             ("PROSTOR_ALLOW_PRIVATE_DESTINATIONS", "true"),
+            (
+                "PROSTOR_ALLOWED_ORIGINS",
+                " https://Studio.example/, http://localhost:5173 ,,",
+            ),
         ])
         .unwrap();
         assert!(config.allow_private_destinations);
+        assert_eq!(
+            config.allowed_origins,
+            vec![
+                "https://studio.example".to_owned(),
+                "http://localhost:5173".to_owned()
+            ]
+        );
         assert_eq!(config.listen, "0.0.0.0:9000".parse().unwrap());
         assert_eq!(config.web_dir, PathBuf::from("/app/web"));
         assert_eq!(config.recordings_dir, PathBuf::from("/recordings"));
