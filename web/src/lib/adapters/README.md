@@ -11,8 +11,8 @@ ADR 0003 §4, is a pure module with unit tests.
   60 frames, hardware → software fallback, queue cap 8, silent-drop accounting) and
   `AudioPipe` (AAC-LC; `null` where the platform has no AAC encoder).
 - `ingest-ws.ts` (Worker): the ingest protocol client (`docs/protocol-ingest.md`): hello,
-  `u32 seq` + tag framing, acks → lag, `end_of_stream`, reconnect with cached sequence
-  headers.
+  `u32 seq` + tag framing, acks → lag, `end_of_stream`, reconnect; media only into a
+  session that answered `started`, which always opens with the cached sequence headers.
 - `backpressure.ts`: the lag policy (drop deltas until the next keyframe, keyframe
   request, bitrate step-down 25 % / slow step-up, degraded, reconnect thresholds).
 
