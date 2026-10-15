@@ -59,9 +59,10 @@ Text frames carry JSON with a `type` field. Binary frames carry media.
 
 - The browser never sends the FLV file header or the `onMetaData` script tag; the server
   builds both from `StreamInfo` (script tags from the browser are refused).
-- The first binary frame must be the AVC sequence header; the AAC sequence header must
-  precede the first audio frame. Both are cached by the server and written in front of the
-  first media frame; later sequence headers are forwarded in order.
+- The AVC sequence header must arrive before the first media frame of either kind, and
+  the AAC sequence header before the first audio frame; the two headers may come in either
+  order (an AAC encoder usually answers first). Both are cached by the server and written
+  in front of the first media frame; later sequence headers are forwarded in order.
 - Audio tags in a stream with `audio_codec: null` are refused.
 - Backpressure (ADR 0003 §4): the browser keeps the send time of every unacked `seq` and
   treats the age of the oldest unacked tag as its lag. Lag > 500 ms: drop non-key video

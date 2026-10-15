@@ -213,11 +213,9 @@ impl Supervisor {
                 "script tags are written by the server",
             ));
         }
-        if self.video_sequence_header.is_none()
-            && !(tag.kind == TagKind::Video && class == TagClass::SequenceHeader)
-        {
+        if self.video_sequence_header.is_none() && class != TagClass::SequenceHeader {
             return Err(SupervisorError::Protocol(
-                "the first tag must be the video sequence header",
+                "the video sequence header must precede the first media frame",
             ));
         }
         if tag.kind == TagKind::Audio {
@@ -534,11 +532,9 @@ mod tests {
         let (mut sup, _log, _gate) = supervisor_with_test_egress(false);
         assert_eq!(
             sup.push(1, key(0)).await.unwrap_err(),
-            SupervisorError::Protocol("the first tag must be the video sequence header")
-        );
-        assert_eq!(
-            sup.push(1, audio_header()).await.unwrap_err(),
-            SupervisorError::Protocol("the first tag must be the video sequence header")
+            SupervisorError::Protocol(
+                "the video sequence header must precede the first media frame"
+            )
         );
         sup.push(1, video_header()).await.unwrap();
         assert_eq!(
@@ -565,6 +561,28 @@ mod tests {
             "refused tags do not advance the sequence"
         );
         sup.stop(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn the_audio_sequence_header_may_come_first_but_not_audio_frames() {
+        // An AAC encoder usually answers before the H.264 encoder does.
+        let (mut sup, log, _gate) = supervisor_with_test_egress(false);
+        sup.push(1, audio_header()).await.unwrap();
+        assert_eq!(
+            sup.push(2, audio(0)).await.unwrap_err(),
+            SupervisorError::Protocol(
+                "the video sequence header must precede the first media frame"
+            )
+        );
+        sup.push(2, video_header()).await.unwrap();
+        sup.push(3, audio(0)).await.unwrap();
+        sup.push(4, key(0)).await.unwrap();
+        let states = sup.stop(Duration::from_secs(1)).await;
+        assert_eq!(states[0].tags, 2);
+        let log = log.lock().unwrap();
+        let headers = log.headers.as_ref().unwrap();
+        assert_eq!(headers.video_sequence_header, video_header());
+        assert_eq!(headers.audio_sequence_header, Some(audio_header()));
     }
 
     #[tokio::test]
