@@ -9,6 +9,7 @@ import { AAC_PRIMING_SAMPLES, AudioPipe, VideoPipe } from '#lib/adapters/encoder
 import { IngestClient } from '#lib/adapters/ingest-ws';
 import { FlvMuxer } from '#lib/wasm/pkg/prostor_wasm.js';
 import { loadWasm } from '#lib/wasm';
+import { holdAudio } from './audio-hold';
 import { Renderer } from './renderer';
 import {
 	emptyStatus,
@@ -162,9 +163,9 @@ class Session {
 		if (!this.ingest || this.stopping || this.audioOffsetUs === null) return;
 		if (!this.videoHeaderSent) {
 			// The AAC encoder usually answers first; the protocol wants the AVC header
-			// before any media, so hold a little audio back (never more than a second).
-			this.heldAudio.push(chunk);
-			if (this.heldAudio.length > MAX_HELD_AUDIO) this.heldAudio.shift();
+			// before any media, so hold a little audio back (never more than a second,
+			// keeping the decoder configuration of whatever is evicted).
+			holdAudio(this.heldAudio, chunk, MAX_HELD_AUDIO);
 			return;
 		}
 		this.sendAudio(chunk);
