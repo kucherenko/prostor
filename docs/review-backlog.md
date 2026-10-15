@@ -4,24 +4,22 @@ Open findings from the fresh-context reviews of 2026-10-14 (second pass, on the 
 the first-pass fixes). Line numbers are approximate. Close items by fixing them in the
 milestone that touches the code, with a regression test each.
 
-## Closed in M1 (server half)
+## Closed in M1
 
 - 1 (idle timeout rebuilt per loop turn): `Peer` keeps one deadline, pushed only by
   received frames; tests cover a dead peer, a pong-answering peer and `MAX_SOCKETS`.
+- 2 (`FlvMuxer` copies an `ArrayBuffer` as zero bytes): the sequence-header methods take
+  a `BufferSource` (typed array, `ArrayBuffer` or `DataView`, offsets honoured) and refuse
+  empty input; browser test covers every shape.
+- 3 (`TimestampMapper` throws on early audio): timestamps up to 200 ms before the origin
+  map to 0 (`EARLY_WINDOW_MS`); the Worker pins the origin at session start and subtracts
+  the AAC priming delay from audio.
 - 9 (`IngestClientMessage` `Debug` prints `auth`): hand-written `Debug` with `<redacted>`.
 - 10 (`EgressState` u64 fields export as `bigint`): `#[ts(type = "number")]`.
 - 11 (`Close` dropped before the reply is flushed): `Peer` completes every close
   handshake, bounded by 2 s; tests assert the code the client sees.
 
 ## Warnings
-2. `core/prostor-wasm/src/lib.rs` `FlvMuxer`: methods take `&[u8]`; an `ArrayBuffer` (what
-   WebCodecs gives for `decoderConfig.description`) is copied as zero bytes without error,
-   producing an undecodable stream. Accept `Uint8Array`/BufferSource and reject empty
-   sequence-header configs. (M1 encoder adapter.)
-3. `core/prostor-wasm/src/lib.rs` `TimestampMapper`: one origin shared by both tracks,
-   latched by the first tag; earlier audio timestamps (AAC priming compensation) throw
-   `BeforeOrigin`. Require `set_origin` up front or accept a small negative window; document.
-   (M1.)
 4. `core/prostor-protocol/src/rtmp.rs` `State::Stopped` is not terminal: late replies revive
    the session and resend the key. Ignore input and emit nothing once stopped. (M2.)
 5. `core/prostor-protocol/src/rtmp.rs`: `rml_rtmp`'s own decoders on bytes from a

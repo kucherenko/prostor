@@ -60,22 +60,27 @@ of this review.
 Goal: a fixed scene (camera + text) is rendered, encoded, muxed in WASM, sent over the
 ingest socket and written to disk by the server as a playable FLV.
 
-- [ ] `render/compositor.worker.ts`: OffscreenCanvas + WebGL2 at 1920×1080 @ 30 fps; takes a
-      hard-coded layer list for now; produces `VideoFrame`s with timestamps from one clock.
-- [ ] `adapters/media`: camera via `getUserMedia` → `MediaStreamTrackProcessor` on the main
-      thread → per-frame transfer to the Worker; Web Audio graph → `AudioEncoder` input.
-- [ ] `adapters/encoder` (in the Worker): ADR 0005 config, hardware → software fallback,
-      keyframe every 60 frames, queue-depth and silent-drop accounting, AAC priming offset
-      measured and compensated.
-- [ ] `adapters/ingest-ws` (in the Worker): ADR 0003 protocol v1 — `u32` seq + FLV tag per
-      message, acks, lag, drop-until-keyframe, bitrate step-down, `end_of_stream`.
+- [x] `render/compositor.worker.ts`: OffscreenCanvas + WebGL2 at 1920×1080 @ 30 fps; executes
+      the `RenderPlan` of the sample scene (camera + title) for now; produces `VideoFrame`s
+      with timestamps from one clock; preview through a transferred canvas.
+- [x] `adapters/media`: camera via `getUserMedia` → `MediaStreamTrackProcessor` on the main
+      thread → per-frame transfer to the Worker; Web Audio graph → destination track →
+      `AudioData` to the Worker's `AudioEncoder`.
+- [x] `adapters/encoder` (in the Worker): ADR 0005 config, hardware → software fallback,
+      keyframe every 60 frames, queue-depth and silent-drop accounting. AAC priming is
+      compensated with the usual 2112 samples (44 ms); the clap measurement that tunes it
+      is still to do.
+- [x] `adapters/ingest-ws` (in the Worker): ADR 0003 protocol v1 — `u32` seq + FLV tag per
+      message, acks, lag, drop-until-keyframe, bitrate step-down, `end_of_stream`;
+      reconnect with cached sequence headers (policy unit-tested in `backpressure.ts`).
 - [x] Server: ingest handler parses tags with `prostor-protocol`, acks every 100 ms,
       `trait Egress` + `FileEgress` (`PROSTOR_RECORDINGS_DIR/<room>-<timestamp>.flv`,
       FLV header + metadata + sequence headers written by the server); egress supervisor
       with bounded queues and drop-until-keyframe; `docs/protocol-ingest.md`; integration
       tests replay the FLV fixture through a real socket and parse the recording back.
-- [ ] Status bar: fps, dropped frames, encoder queue, active encoder, lag, `bufferedAmount`,
-      bitrate.
+- [x] Status bar: fps, dropped frames, encoder queue, active encoder, lag, `bufferedAmount`,
+      bitrate, plus the server's per-egress state. `just e2e` streams 10 s from Chrome's
+      fake camera and checks the recording with ffprobe.
 - [x] Graceful shutdown that covers WebSockets (review #7): a `CancellationToken` +
       `TaskTracker`; handlers send Close 1001 and finalize (flush the recording); a
       deadline after `serve` returns; exit on the second signal.

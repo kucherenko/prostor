@@ -89,6 +89,26 @@ smoke: build
     done
     cd "{{ web }}" && PROSTOR_URL="http://127.0.0.1:${port}/" pnpm smoke
 
+# Build, boot the release server with a temporary recordings directory and a secret, stream
+# 10 s from Chrome's fake camera through /studio, and check the recording with ffprobe.
+e2e: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    port="${PROSTOR_E2E_PORT:-18081}"
+    recordings="$(mktemp -d)"
+    secret="e2e-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+    PROSTOR_LISTEN="127.0.0.1:${port}" PROSTOR_WEB_DIR="{{ web }}/build" \
+        PROSTOR_RECORDINGS_DIR="$recordings" PROSTOR_SECRET="$secret" \
+        "{{ root }}/target/release/prostor" &
+    server=$!
+    trap 'kill "$server" 2>/dev/null || true' EXIT
+    for _ in $(seq 1 50); do
+        curl -fs "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1 && break
+        sleep 0.2
+    done
+    cd "{{ web }}" && PROSTOR_URL="http://127.0.0.1:${port}/" PROSTOR_RECORDINGS_DIR="$recordings" \
+        PROSTOR_SECRET="$secret" pnpm e2e
+
 # Build the `prostor` Docker image.
 docker:
     docker build -t prostor .

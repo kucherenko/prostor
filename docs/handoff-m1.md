@@ -47,26 +47,30 @@ the wire reference.
   keyframe, drops reported, failed egress skipped, hung egress aborted).
 - Backlog items 1, 9, 10, 11 closed; plan boxes ticked.
 
-## Next: browser half of M1
+## Done: browser half of M1 (first pass)
 
-`web/src/lib/render/compositor.worker.ts` (OffscreenCanvas + WebGL2 1920×1080 @ 30 fps
-from a `RenderPlan`, VideoFrames with one clock, preview via a transferred canvas),
-`adapters/media.ts` (getUserMedia → `MediaStreamTrackProcessor` on the main thread →
-per-frame transfer; Web Audio graph → destination track → AudioData to the Worker),
-`adapters/encoder.ts` (ADR 0005 config, hardware → software fallback, keyframe every 60,
-queue accounting; watch backlog items 2 and 3 for `FlvMuxer` inputs and origins),
-`adapters/ingest-ws.ts` (ADR 0003 policy: seq prefix, acks, lag, drop-until-keyframe,
-bitrate step-down, end_of_stream; the server's exact behaviour is in
-`docs/protocol-ingest.md` and `server/prostor-server/tests/ingest.rs`), `/studio` page with
-Start/Stop, secret, status bar; an e2e script with Chrome's fake camera that records 10 s
-and checks the file with ffprobe. Then a fresh review and a PR to `main`.
+- `web/src/lib/render/`: `compositor.worker.ts` (frame loop, WebGL2 `renderer.ts`,
+  encoders → wasm `FlvMuxer` → ingest client, status every 500 ms, preview through a
+  transferred canvas), `pipeline.ts` (main-thread controller), `messages.ts`,
+  `geometry.ts` (+ tests).
+- `web/src/lib/adapters/`: `media.ts` (camera, Web Audio graph, processor pumps),
+  `encoder.ts` (ADR 0005 config, fallback, queue cap, drop accounting, AAC priming
+  constant), `ingest-ws.ts` (protocol v1 client, reconnect), `backpressure.ts` (ADR 0003
+  §4 policy, + tests), `webcodecs.d.ts`.
+- `/studio`: open camera → start/stop, room, secret (memory only), bitrate, status bar.
+- `just e2e` (`web/scripts/e2e-record.mjs`): release server + headless Chrome with a fake
+  camera, 10 s, ffprobe on the recording. Needs a Chrome with H.264 (`PROSTOR_CHROME`):
+  Chrome for Testing has software H.264 on Linux and no AAC, so the session is video
+  only there; the Playwright Chromium has no WebCodecs encoders at all.
+- Backlog items 2 and 3 closed in `prostor-wasm` (BufferSource inputs, early window).
 
-Server follow-ups worth a look during the browser half: the ack cadence (100 ms, ADR 0003
-says tune it once the protocol exists) and whether a keyframe should also be droppable when
-an egress queue stays full (today only deltas are dropped, so a wedged egress stalls the
-ingest reader on the next keyframe or audio tag until `stop` aborts it).
+## Next
 
-Gate before each commit: `just lint && just test && just smoke && cargo deny check`.
+1. Run the M1 check on macOS (hardware encoder + AAC): 60 s session, VLC playback, lag on
+   loopback, A/V offset with a clap; tune `AAC_PRIMING_SAMPLES` from the measurement.
+2. Review the first pass with fresh eyes (worker error paths, reconnect, the stop path
+   flushing both encoders), then a PR to `main`.
+3. M2 (RTMP egress) per the plan.
 
 ## Environment notes
 
@@ -76,5 +80,12 @@ Gate before each commit: `just lint && just test && just smoke && cargo deny che
 - chromedriver 155 is under `~/.cache/prostor-browsers`; `just test-wasm` finds it.
 - Cloud sessions: `just`, `wasm-pack` and `cargo-deny` come from `cargo install`; the web
   checks need `npm_config_engine_strict=false pnpm install` when the image's Node is a
-  patch behind `engines.node`; `just test-wasm` works with
-  `CHROMEDRIVER=/opt/node22/bin/chromedriver` and the Playwright Chromium on `PATH`.
+  patch behind `engines.node`. `just test-wasm` needs a chromedriver matching the
+  Playwright Chromium (`npx @puppeteer/browsers install chromedriver@<version> --path
+  ~/.cache/prostor-browsers`, then `CHROMEDRIVER=...` and that Chromium on `PATH`).
+  wasm-pack cannot download binaryen through the proxy: fetch the tarball with curl and put
+  `wasm-opt` on `PATH`. `just e2e` needs Chrome for Testing
+  (`npx @puppeteer/browsers install chrome@stable --path ~/.cache/prostor-browsers`,
+  `PROSTOR_CHROME=<its chrome binary>`): software H.264, no AAC, and SwiftShader WebGL
+  renders 1080p at about 12 fps there, so the frame-rate numbers are not meaningful on
+  that box.
