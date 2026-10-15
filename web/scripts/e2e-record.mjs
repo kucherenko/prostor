@@ -1,9 +1,10 @@
 // End-to-end check of the M1 tracer bullet: opens /studio in headless Chrome with a fake
-// camera, streams for a few seconds, stops, and verifies the server's recording with
-// ffprobe (H.264, plus AAC when the browser could encode it).
+// camera, passes the lobby (display name, room, secret, Join), streams for a few seconds,
+// stops, and verifies the server's recording with ffprobe (H.264, plus AAC when the browser
+// could encode it).
 //
 //   PROSTOR_URL=http://127.0.0.1:8080/ PROSTOR_RECORDINGS_DIR=/tmp/rec pnpm e2e
-//   PROSTOR_SECRET=...        the server's secret, typed into the page (never in the URL)
+//   PROSTOR_SECRET=...        the server's secret, typed into the lobby (never in the URL)
 //   PROSTOR_CHROME=/path     optional; defaults to the installed Google Chrome
 //   PROSTOR_E2E_SECONDS=10   how long to stream
 //   PROSTOR_E2E_RTMP_URL=rtmp://127.0.0.1:1936/live  PROSTOR_E2E_RTMP_KEY=e2e
@@ -23,6 +24,7 @@ const rtmpUrl = process.env.PROSTOR_E2E_RTMP_URL ?? '';
 const rtmpKey = process.env.PROSTOR_E2E_RTMP_KEY ?? '';
 const rtmpOut = process.env.PROSTOR_E2E_RTMP_OUT ?? '';
 const room = `e2e-${Date.now().toString(36)}`;
+const displayName = 'E2E Producer';
 const timeout = 30_000;
 
 if (!recordingsDir) {
@@ -47,6 +49,9 @@ const browser = await puppeteer.launch({
 	]
 });
 
+/** A failure already recorded in `problems`; the catch below must not add it again. */
+class Reported extends Error {}
+
 const problems = [];
 const result = { url, room, seconds };
 try {
@@ -62,7 +67,7 @@ try {
 	await page.goto(url, { waitUntil: 'networkidle0', timeout });
 	await page.waitForFunction(
 		() =>
-			['idle', 'unsupported'].includes(
+			['lobby', 'unsupported'].includes(
 				document.querySelector('[data-testid="phase"]')?.textContent ?? ''
 			),
 		{ timeout }
@@ -74,29 +79,86 @@ try {
 		);
 	if ((await text('phase')) === 'unsupported') {
 		problems.push(`unsupported browser: ${await text('error')}`);
-		throw new Error('unsupported');
+		throw new Reported('unsupported');
 	}
 
-	await page.evaluate(() => {
-		const input = document.querySelector('[data-testid="room"]');
-		input.value = '';
-	});
-	await page.type('[data-testid="room"]', room);
+	// Lobby: the fake camera shows in the self-view; name, room and secret → Join.
+	const fill = async (selector, value) => {
+		await page.$eval(selector, (input) => {
+			input.value = '';
+		});
+		await page.type(selector, value);
+	};
+	await fill('[data-testid="lobby-name"]', displayName);
+	await fill('[data-testid="room"]', room);
 	if (secret) await page.type('[data-testid="secret"]', secret);
+	await page.waitForFunction(
+		() => {
+			const join = document.querySelector('[data-testid="lobby-join"]');
+			const preview = document.querySelector('[data-testid="lobby-preview"]');
+			return join && !join.disabled && preview && preview.videoWidth > 0;
+		},
+		{ timeout }
+	);
+	result.lobby = await page.evaluate(() => {
+		// Only options with a value are devices: an empty one is the placeholder of an empty list.
+		const devices = (testId) =>
+			Array.from(document.querySelector(`[data-testid="${testId}"]`)?.options ?? []).filter(
+				(option) => option.value !== ''
+			).length;
+		const video = document.querySelector('[data-testid="lobby-preview"]');
+		return {
+			cameras: devices('lobby-camera'),
+			microphones: devices('lobby-microphone'),
+			preview: `${video.videoWidth}×${video.videoHeight}`
+		};
+	});
+	if (!result.lobby.cameras) problems.push('the lobby lists no camera');
+	await page.click('[data-testid="lobby-join"]');
+	// Join ends in `camera`, or back in the lobby with the reason in the form. The error element
+	// exists only after a failed Join, which tells that apart from not having left the lobby yet.
+	await page.waitForFunction(
+		() => {
+			const phase = document.querySelector('[data-testid="phase"]')?.textContent;
+			return (
+				phase === 'camera' ||
+				(phase === 'lobby' && document.querySelector('[data-testid="error"]') !== null)
+			);
+		},
+		{ timeout }
+	);
+	if ((await text('phase')) !== 'camera') {
+		problems.push(`join failed: ${await text('error')}`);
+		throw new Reported('join failed');
+	}
+	result.camera = await text('camera');
+	if ((await text('joined-name')) !== displayName) {
+		problems.push(`joined as ${await text('joined-name')}, expected ${displayName}`);
+	}
+	if ((await text('joined-room')) !== room) {
+		problems.push(`joined room ${await text('joined-room')}, expected ${room}`);
+	}
+	// The lobby remembers the name; the producer secret must never reach localStorage.
+	const stored = await page.evaluate(() =>
+		Array.from({ length: localStorage.length }, (_, i) => {
+			const key = localStorage.key(i);
+			return [key, localStorage.getItem(key)];
+		})
+	);
+	if (!stored.some(([key, value]) => key === 'prostor.lobby.name' && value === displayName)) {
+		problems.push('the lobby did not remember the display name');
+	}
+	if (secret && stored.some(([key, value]) => `${key}${value}`.includes(secret))) {
+		problems.push('the producer secret was written to localStorage');
+	}
 
+	// The studio shows after Join, so the destinations are filled in now.
 	if (rtmpUrl) {
 		await page.click('[data-testid="dest-add"]');
 		await page.type('[data-testid="dest-name-0"]', 'e2e');
 		await page.type('[data-testid="dest-url-0"]', rtmpUrl);
 		await page.type('[data-testid="dest-key-0"]', rtmpKey);
 	}
-
-	await page.click('[data-testid="open-camera"]');
-	await page.waitForFunction(
-		() => document.querySelector('[data-testid="phase"]')?.textContent === 'camera',
-		{ timeout }
-	);
-	result.camera = await text('camera');
 
 	await page.click('[data-testid="start"]');
 	await page.waitForFunction(
@@ -108,7 +170,7 @@ try {
 	);
 	if ((await text('phase')) !== 'live') {
 		problems.push(`start failed: ${await text('error')}`);
-		throw new Error('start failed');
+		throw new Reported('start failed');
 	}
 	result.recording = await text('recording');
 	await new Promise((r) => setTimeout(r, seconds * 1000));
@@ -195,7 +257,7 @@ try {
 		}
 	}
 } catch (error) {
-	if (!problems.length) problems.push(String(error?.stack ?? error));
+	if (!(error instanceof Reported)) problems.push(String(error?.stack ?? error));
 } finally {
 	await browser.close();
 }

@@ -6,12 +6,15 @@ infinite canvas (think Miro).
 
 ## What it is
 
-- The producer works on an infinite **board**. On it they place **scenes**: 16:9
-  compositions made of layers (guest video, screen share, media, text, images, overlays,
-  browser sources).
+- The producer enters through a **lobby** (camera, microphone, display name) and works on an
+  infinite **canvas** (the board). On it they place **elements**: guest video, screen
+  share, media, text, images, stickers, overlays, browser sources.
+- A **scene** is a 16:9 **frame** drawn over the canvas; it streams whatever lies inside it.
+  Frames of different sizes over the same elements give different zoom levels (ADR 0007).
 - Scenes are connected with **transitions**, drawn as edges on the board. A show is a
   navigable graph of scenes, not a flat list.
-- Guests join via a link and are assigned to one or more scenes. No accounts.
+- Guests join via a link and appear in a scene by being placed inside its frame. No
+  accounts.
 - The producer switches scenes live. The composed **program output** is streamed to
   YouTube, Twitch, TikTok and Telegram simultaneously, and can be recorded.
 
@@ -35,7 +38,7 @@ are `prostor`; crates are `prostor-*`; environment variables are `PROSTOR_*`.
 
 ## Phase 0 — walking skeleton
 
-Board editor with scene nodes and transition edges; scene editor with positioned layers;
+Producer lobby; canvas editor with elements, scene frames and transition edges;
 up to 4 guests over a WebRTC peer-to-peer mesh; a 1920×1080 @ 30 fps program renderer
 (WebGL2, WebGPU behind a flag) with cut, crossfade and slide transitions; WebCodecs
 H.264 + AAC (Opus fallback) encoder; FLV over binary WebSocket to the server; RTMP egress

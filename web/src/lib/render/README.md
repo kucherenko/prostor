@@ -16,9 +16,9 @@ The compositor Worker and its main-thread controller.
 - `audio-hold.ts`: the bounded queue for audio that arrives before the video sequence
   header; an evicted chunk hands its decoder configuration on, so the audio sequence
   header is never lost.
-- `pipeline.ts` (main thread): starts the Worker, transfers the preview canvas, opens
-  capture with `adapters/media` and forwards frames; exposes `start`/`stop`.
+- `pipeline.ts` (main thread): starts the Worker, transfers the preview canvas, takes the
+  stream the lobby opened (`attachMedia`) and forwards its frames; exposes `start`/`stop`.
 - `messages.ts`: the page ↔ Worker protocol and the `PipelineStatus` the status bar shows.
 
-WebGPU stays behind a flag until ADR 0007 (M4). The audio mixer is a single gain node
+WebGPU stays behind a flag until ADR 0008 (M4). The audio mixer is a single gain node
 until M5 adds guests.

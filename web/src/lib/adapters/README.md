@@ -4,9 +4,13 @@ Thin TypeScript wrappers around browser APIs. Adapters execute what the Rust cor
 the ADRs decide; the one piece of policy that lives here, the ingest backpressure of
 ADR 0003 §4, is a pure module with unit tests.
 
-- `media.ts` (main thread): `getUserMedia`, the Web Audio graph, and
-  `MediaStreamTrackProcessor` pumps that hand `VideoFrame`s and `AudioData` to a sink
-  (the compositor Worker). `webcodecs.d.ts` declares the Chrome-only processor type.
+- `media.ts` (main thread): `getUserMedia` (device ids, fallbacks, error wording), the Web
+  Audio graph, and `MediaStreamTrackProcessor` pumps that hand `VideoFrame`s and
+  `AudioData` to a sink (the compositor Worker). `webcodecs.d.ts` declares the
+  Chrome-only processor type.
+- `devices.ts` (main thread): the lobby's camera and microphone lists
+  (`enumerateDevices`, refreshed on `devicechange`), the pure device picker, and the
+  remembered choices (device ids, display name) in localStorage. Never the secret.
 - `encoder.ts` (Worker): `VideoPipe` (H.264 Main 4.0, AVCC, realtime CBR, keyframe every
   60 frames, hardware → software fallback, queue cap 8, silent-drop accounting) and
   `AudioPipe` (AAC-LC; `null` where the platform has no AAC encoder).

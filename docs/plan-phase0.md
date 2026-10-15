@@ -11,6 +11,8 @@ of this review.
 ## Decisions needed from the maintainer
 
 - [x] **License**: Apache-2.0 (decided 2026-10-14; `LICENSE` and `license` fields in place).
+- [x] **Scene membership**: spatial — a scene's frame streams what lies inside it (decided
+      2026-10-15, ADR 0007).
 - [ ] **AAC strategy** (ADR 0005, option A or B). Recommendation: A — WebCodecs AAC-LC on
       macOS/Windows for Phase 0, server-side Opus → AAC (ffmpeg sidecar) in Phase 1.
 - [ ] **Milestone order**: pipeline first (M1–M2 below, recommended: the remaining risk is
@@ -143,6 +145,35 @@ Goal: scenes come from the board, not from code, and survive a reload.
 - [x] ADR 0006: document schema and command model (ids, versioning, CRDT readiness).
 - Check: build two scenes and an edge, reload, everything is back; export, re-import; the
   compositor renders whatever the board says.
+- Superseded in part by M3.5: per-scene layers and the scene editor give way to canvas
+  elements and frames (ADR 0007).
+
+### M3.5 — Lobby, canvas and scene frames (ADR 0007)
+
+Goal: the producer enters through a lobby, builds the show on one canvas, and streams what
+the live frame shows.
+
+- [x] Lobby: `/studio` opens on camera and microphone pickers (`enumerateDevices`) with a
+      live preview, a display name, the room and the producer secret → Join. Device ids and
+      the name stay in localStorage, never in the board. One component, reused by the M5
+      guest page. `just e2e` follows lobby → Join → Start.
+- [ ] `prostor-model` schema v2: board-level `elements`, `Scene.frame`; frozen `v1` types
+      and the v1 → v2 migration for saved boards and imports; element commands and
+      `set_scene_frame`; ts-rs types.
+- [ ] `prostor-engine`: validation (16:9 frames, ids unique on the board); `render_plan`
+      from the live frame (overlapping elements, projected, not clamped); unit tests with
+      migration fixtures; wasm tests.
+- [ ] Compositor: destination rectangles that overflow the program are cut at its edge.
+- [ ] Canvas UI: a full-viewport canvas with a toolbar (select, camera, screen share, image,
+      text, sticker, frame); elements drawn live under pan/zoom; frames on top with their
+      names, the live one marked; select, drag, resize; double-click or 1–9 to go live. The
+      scene editor is removed.
+- [ ] Screen share through `getDisplayMedia`; per-source textures in the compositor (camera,
+      screen); a bundled sticker set inserted as image elements.
+- Check: pick a non-default camera and a name in the lobby, join; put the camera, a sticker
+  and a screen share on the canvas; frame them wide, then frame the camera alone as a
+  close-up; go live on each with 1 and 2. The program and the recording show exactly what
+  each frame shows, cut at its edge. Reload: everything is back; a v1 export imports.
 
 ### M4 — Transitions and audio mixer
 
@@ -150,16 +181,16 @@ Goal: scenes come from the board, not from code, and survive a reload.
       from timestamps); `RenderPlan` carries both scenes and the progress during a transition.
 - [ ] Compositor implements the three transitions in WebGL2; mixer fades per-source gains
       with the transition.
-- [ ] ADR 0007: renderer (WebGL2 default, WebGPU behind a flag).
+- [ ] ADR 0008: renderer (WebGL2 default, WebGPU behind a flag).
 - Check: scene 1 → scene 2 crossfade visible on both platforms and in the recording.
 
 ### M5 — Guests over a WebRTC mesh
 
-- [ ] Room tokens; `/join/[room]?t=` guest page (device picker, mute, leave); one
-      `RTCPeerConnection` per guest to the producer; public STUN, no TURN (documented).
+- [ ] Room tokens; `/join/[room]?t=` guest page (the lobby's device picker, mute, leave);
+      one `RTCPeerConnection` per guest to the producer; public STUN, no TURN (documented).
 - [ ] Producer: up to 4 peer connections; received video tracks read on the main thread and
-      transferred to the Worker; guest audio into the mixer; `Guest` layer kind; guest
-      assignment per scene; presence in the UI.
+      transferred to the Worker; guest audio into the mixer; `Guest` element kind (a
+      guest is in a scene when their element lies in its frame); presence in the UI.
 - [ ] Signaling: offer/answer/ICE relay, presence, guest-to-scene assignment events.
 - Check: steps 5, 6 and 9 of `docs/acceptance/phase0.md`.
 
