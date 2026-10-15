@@ -9,7 +9,7 @@ ARG WASM_PACK_VERSION=0.15.0
 # ---- 1. Rust core compiled to WebAssembly ------------------------------------
 FROM rust:${RUST_VERSION}-bookworm AS wasm
 ARG WASM_PACK_VERSION
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     rustup target add wasm32-unknown-unknown \
     && cargo install wasm-pack --locked --version "${WASM_PACK_VERSION}"
 WORKDIR /src
@@ -18,8 +18,8 @@ COPY .cargo .cargo
 COPY core core
 COPY server server
 COPY spikes spikes
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/src/target,id=target-wasm \
     wasm-pack build core/prostor-wasm --target web --profile wasm-release \
         --out-dir /out/pkg --out-name prostor_wasm
 
@@ -42,8 +42,8 @@ COPY .cargo .cargo
 COPY core core
 COPY server server
 COPY spikes spikes
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/src/target,id=target-server \
     cargo build --release -p prostor-server \
     && mkdir -p /out && cp target/release/prostor /out/prostor
 
