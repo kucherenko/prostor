@@ -12,8 +12,9 @@
 //!
 //! The browser never sends the FLV file header or the `onMetaData` script tag: the
 //! server builds both from [`StreamInfo`] for recordings and for RTMP destinations. The
-//! first media tag the browser sends must be the video sequence header; the audio
-//! sequence header precedes the first audio frame.
+//! video sequence header must arrive before the first media frame of either kind, the
+//! audio sequence header before the first audio frame (the headers may come in either
+//! order).
 //!
 //! A session: the browser sends `hello` within 5 seconds of connecting, the server
 //! answers `started`, media frames flow, the server answers with `ack` every 100 ms and

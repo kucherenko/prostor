@@ -25,6 +25,14 @@ interface WorkerScope {
 
 const scope = self as unknown as WorkerScope;
 const STATUS_INTERVAL_MS = 500;
+/** About one second of AAC chunks (47 per second at 48 kHz). */
+const MAX_HELD_AUDIO = 50;
+
+interface AudioChunkLike {
+	timestampUs: number;
+	data: Uint8Array;
+	description: AllowSharedBufferSource | null;
+}
 
 let renderer: Renderer | null = null;
 let preview: ImageBitmapRenderingContext | null = null;
@@ -52,6 +60,9 @@ class Session {
 	audio: AudioPipe | null = null;
 	ingest: IngestClient | null = null;
 	audioOffsetUs: number | null = null;
+	/** The server wants the AVC sequence header first; audio that arrives earlier waits. */
+	private videoHeaderSent = false;
+	private heldAudio: AudioChunkLike[] = [];
 	readonly primingMs: number;
 	stopping = false;
 	fatal: string | null = null;
@@ -132,6 +143,13 @@ class Session {
 					chunk.description as BufferSource
 				);
 				ingest.send({ bytes: header, kind: 'video', key: true, sequenceHeader: true });
+				if (!this.videoHeaderSent) {
+					this.videoHeaderSent = true;
+					for (const held of this.heldAudio.splice(0)) this.sendAudio(held);
+				}
+			} else if (!this.videoHeaderSent) {
+				this.abort('video encoder delivered a frame before its decoder configuration');
+				return;
 			}
 			const tag = this.muxer.video(timestampMs, chunk.key, 0, chunk.data);
 			ingest.send({ bytes: tag, kind: 'video', key: chunk.key, sequenceHeader: false });
@@ -140,13 +158,21 @@ class Session {
 		}
 	}
 
-	private onAudioChunk(chunk: {
-		timestampUs: number;
-		data: Uint8Array;
-		description: AllowSharedBufferSource | null;
-	}) {
+	private onAudioChunk(chunk: AudioChunkLike) {
+		if (!this.ingest || this.stopping || this.audioOffsetUs === null) return;
+		if (!this.videoHeaderSent) {
+			// The AAC encoder usually answers first; the protocol wants the AVC header
+			// before any media, so hold a little audio back (never more than a second).
+			this.heldAudio.push(chunk);
+			if (this.heldAudio.length > MAX_HELD_AUDIO) this.heldAudio.shift();
+			return;
+		}
+		this.sendAudio(chunk);
+	}
+
+	private sendAudio(chunk: AudioChunkLike) {
 		const ingest = this.ingest;
-		if (!ingest || this.stopping || this.audioOffsetUs === null) return;
+		if (!ingest || this.audioOffsetUs === null) return;
 		// The encoder echoes the capture clock; map it onto the session clock and pull
 		// the content forward by the encoder's priming delay.
 		const timestampMs = (chunk.timestampUs + this.audioOffsetUs) / 1000 - this.primingMs;
