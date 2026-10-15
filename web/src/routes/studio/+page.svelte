@@ -2,7 +2,16 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import type { RenderPlan } from '#lib/generated/RenderPlan';
+	import {
+		loadDestinations,
+		maskKey,
+		newDestination,
+		saveDestinations,
+		toSpecs,
+		type StoredDestination
+	} from '#lib/adapters/destinations';
 	import { captureSupport } from '#lib/adapters/media';
+	import { SignalingClient } from '#lib/adapters/signaling';
 	import { emptyStatus, type PipelineStatus } from '#lib/render/messages';
 	import { StudioPipeline } from '#lib/render/pipeline';
 	import { helloScene, loadWasm } from '#lib/wasm';
@@ -27,10 +36,20 @@
 	let cameraSettings = $state<string | null>(null);
 	let status = $state<PipelineStatus>(emptyStatus());
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
+	let destinations = $state<StoredDestination[]>([]);
+	let revealKeys = $state(false);
+	let armed = $state<string[]>([]);
 
 	let pipeline: StudioPipeline | null = null;
+	let signaling: SignalingClient | null = null;
+
+	$effect(() => {
+		// Persist every edit (the key included: this browser is the only place it lives).
+		saveDestinations(destinations);
+	});
 
 	onMount(async () => {
+		destinations = loadDestinations();
 		const support = captureSupport();
 		if (!support.ok) {
 			missing = support.missing;
@@ -59,8 +78,39 @@
 	});
 
 	onDestroy(() => {
+		signaling?.close();
 		void pipeline?.dispose();
 	});
+
+	function addDestination() {
+		destinations = [...destinations, newDestination()];
+	}
+
+	function removeDestination(id: string) {
+		destinations = destinations.filter((d) => d.id !== id);
+	}
+
+	function wsUrl(path: string): string {
+		const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+		return `${scheme}://${location.host}${path}`;
+	}
+
+	/** Opens the signaling socket and declares the enabled destinations. */
+	async function arm(): Promise<void> {
+		signaling?.close();
+		const client = new SignalingClient({
+			url: wsUrl(`/ws/room/${encodeURIComponent(room)}`),
+			auth: secret.length > 0 ? secret : null,
+			role: 'producer',
+			onClosed: (code, reason) => {
+				if (phase === 'live') error = `signaling socket closed (${code} ${reason})`;
+			}
+		});
+		await client.connect();
+		const ready = await client.startStream(toSpecs(destinations));
+		armed = ready.map((d) => d.name);
+		signaling = client;
+	}
 
 	async function openCamera() {
 		if (!pipeline) return;
@@ -81,19 +131,15 @@
 		}
 	}
 
-	function ingestUrl(): string {
-		const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-		return `${scheme}://${location.host}/ws/ingest/${encodeURIComponent(room)}`;
-	}
-
 	async function start() {
 		if (!pipeline) return;
 		error = null;
 		recording = null;
 		phase = 'starting';
 		try {
+			await arm();
 			const started = await pipeline.start({
-				url: ingestUrl(),
+				url: wsUrl(`/ws/ingest/${encodeURIComponent(room)}`),
 				auth: secret.length > 0 ? secret : null,
 				width: WIDTH,
 				height: HEIGHT,
@@ -109,6 +155,9 @@
 			phase = 'live';
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : String(cause);
+			signaling?.close();
+			signaling = null;
+			armed = [];
 			phase = 'camera';
 		}
 	}
@@ -118,9 +167,13 @@
 		phase = 'stopping';
 		try {
 			status = await pipeline.stop();
+			await signaling?.stopStream();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : String(cause);
 		}
+		signaling?.close();
+		signaling = null;
+		armed = [];
 		phase = 'camera';
 	}
 
@@ -134,7 +187,8 @@
 		<a class="text-blue-700 underline" href={resolve('/')}>Back</a>
 	</header>
 	<p class="mt-1 text-sm text-gray-600">
-		Tracer bullet: camera + title → WebGL2 compositor → H.264/AAC → FLV → the server's recording.
+		Camera + title → WebGL2 compositor → H.264/AAC → FLV → the server's recording and the RTMP
+		destinations below.
 	</p>
 
 	{#if phase === 'unsupported'}
@@ -229,6 +283,84 @@
 		</form>
 	</section>
 
+	<section class="mt-4 text-sm">
+		<div class="flex items-baseline justify-between">
+			<h2 class="text-lg font-semibold">Destinations</h2>
+			<label class="flex items-center gap-2 text-xs text-gray-600">
+				<input type="checkbox" bind:checked={revealKeys} />
+				<span>Show keys</span>
+			</label>
+		</div>
+		<p class="text-xs text-gray-600">
+			URL without the key (e.g. <code>rtmp://live.twitch.tv/app</code>) and the key beside it.
+			Stored in this browser only; sent to the server when you press Start, never written there.
+		</p>
+		<ul class="mt-2 flex flex-col gap-2" data-testid="destinations">
+			{#each destinations as destination, i (destination.id)}
+				<li class="grid grid-cols-[auto_1fr_2fr_2fr_auto] items-center gap-2">
+					<input
+						type="checkbox"
+						bind:checked={destination.enabled}
+						disabled={phase === 'live' || phase === 'starting'}
+						title="Enabled"
+					/>
+					<input
+						class="rounded border px-2 py-1"
+						placeholder="Name"
+						bind:value={destination.name}
+						disabled={phase === 'live' || phase === 'starting'}
+						data-testid={`dest-name-${i}`}
+					/>
+					<input
+						class="rounded border px-2 py-1 font-mono"
+						placeholder="rtmp://host/app"
+						bind:value={destination.url}
+						disabled={phase === 'live' || phase === 'starting'}
+						data-testid={`dest-url-${i}`}
+					/>
+					{#if revealKeys}
+						<input
+							class="rounded border px-2 py-1 font-mono"
+							placeholder="stream key"
+							autocomplete="off"
+							bind:value={destination.key}
+							disabled={phase === 'live' || phase === 'starting'}
+							data-testid={`dest-key-${i}`}
+						/>
+					{:else}
+						<input
+							class="rounded border px-2 py-1 font-mono"
+							type="password"
+							placeholder="stream key"
+							autocomplete="off"
+							bind:value={destination.key}
+							disabled={phase === 'live' || phase === 'starting'}
+							data-testid={`dest-key-${i}`}
+							title={maskKey(destination.key)}
+						/>
+					{/if}
+					<button
+						type="button"
+						class="rounded px-2 py-1 text-gray-600 hover:text-red-700 disabled:opacity-40"
+						onclick={() => removeDestination(destination.id)}
+						disabled={phase === 'live' || phase === 'starting'}
+						title="Remove">✕</button
+					>
+				</li>
+			{/each}
+		</ul>
+		<button
+			type="button"
+			class="mt-2 rounded border px-3 py-1 disabled:opacity-40"
+			onclick={addDestination}
+			disabled={phase === 'live' || phase === 'starting'}
+			data-testid="dest-add">Add destination</button
+		>
+		{#if armed.length > 0}
+			<p class="mt-1 text-xs text-gray-600" data-testid="armed">Armed: {armed.join(', ')}</p>
+		{/if}
+	</section>
+
 	<section
 		class="mt-4 grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs sm:grid-cols-4 lg:grid-cols-6"
 	>
@@ -256,7 +388,12 @@
 		<span>reconnects</span><span>{status.ingest.reconnects}</span>
 		{#each status.ingest.egress as egress (egress.id)}
 			<span>egress {egress.id}</span>
-			<span data-testid="egress">{egress.state} {egress.tags} tags, {egress.dropped} dropped</span>
+			<span data-testid="egress" data-egress={egress.id}
+				>{egress.state}
+				{egress.tags} tags, {egress.dropped} dropped{egress.reconnects > 0
+					? `, ${egress.reconnects} reconnects`
+					: ''}{egress.detail ? ` (${egress.detail})` : ''}</span
+			>
 		{/each}
 	</section>
 </main>
