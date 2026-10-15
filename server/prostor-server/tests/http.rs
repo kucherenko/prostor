@@ -15,6 +15,7 @@ fn config_with_web_dir(dir: &std::path::Path) -> Config {
         web_dir: dir.to_path_buf(),
         recordings_dir: dir.join("recordings"),
         secret: None,
+        allow_private_destinations: false,
     }
 }
 

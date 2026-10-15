@@ -23,6 +23,10 @@ pub struct Config {
     /// Shared producer secret. `PROSTOR_SECRET`. When set, every ingest session must
     /// present it in `hello.auth`; when unset, the server should only listen on loopback.
     pub secret: Option<Secret>,
+    /// Let RTMP destinations resolve to loopback, link-local or private addresses.
+    /// `PROSTOR_ALLOW_PRIVATE_DESTINATIONS` = `1` or `true`; off by default, so a producer
+    /// cannot point the server's egress at the server's own network.
+    pub allow_private_destinations: bool,
 }
 
 /// Errors while reading the configuration.
@@ -91,11 +95,14 @@ impl Config {
                 Some(Secret::new(value))
             }
         };
+        let allow_private_destinations = text("PROSTOR_ALLOW_PRIVATE_DESTINATIONS")?
+            .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes"));
         Ok(Self {
             listen,
             web_dir: path(&lookup, "PROSTOR_WEB_DIR", "web/build"),
             recordings_dir: path(&lookup, "PROSTOR_RECORDINGS_DIR", "recordings"),
             secret,
+            allow_private_destinations,
         })
     }
 }
@@ -128,6 +135,7 @@ mod tests {
         assert_eq!(config.web_dir, PathBuf::from("web/build"));
         assert_eq!(config.recordings_dir, PathBuf::from("recordings"));
         assert!(config.secret.is_none());
+        assert!(!config.allow_private_destinations);
     }
 
     #[test]
@@ -137,8 +145,10 @@ mod tests {
             ("PROSTOR_WEB_DIR", "/app/web"),
             ("PROSTOR_RECORDINGS_DIR", "/recordings"),
             ("PROSTOR_SECRET", "hunter2"),
+            ("PROSTOR_ALLOW_PRIVATE_DESTINATIONS", "true"),
         ])
         .unwrap();
+        assert!(config.allow_private_destinations);
         assert_eq!(config.listen, "0.0.0.0:9000".parse().unwrap());
         assert_eq!(config.web_dir, PathBuf::from("/app/web"));
         assert_eq!(config.recordings_dir, PathBuf::from("/recordings"));

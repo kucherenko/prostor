@@ -9,13 +9,15 @@
 use std::{fmt, io};
 
 use async_trait::async_trait;
-use prostor_model::{EgressKind, StreamInfo};
+use prostor_model::{EgressKind, EgressPhase, StreamInfo};
 use prostor_protocol::flv::{self, Metadata, MuxConfig, TagBuf, parse_exact, write_metadata_tag};
 
 pub mod file;
+pub mod rtmp;
 pub mod supervisor;
 
 pub use file::FileEgress;
+pub use rtmp::{ConnectPolicy, RtmpEgress};
 pub use supervisor::{Supervisor, SupervisorError};
 
 /// Everything an egress needs before the first media tag.
@@ -47,9 +49,9 @@ pub fn mux_config(info: &StreamInfo) -> MuxConfig {
     }
 }
 
-/// Builds the `onMetaData` tag for a stream.
-pub fn metadata_tag(info: &StreamInfo) -> Result<TagBuf, flv::Error> {
-    let metadata = Metadata {
+/// The stream description for `onMetaData` (file and RTMP).
+pub fn stream_metadata(info: &StreamInfo) -> Metadata {
+    Metadata {
         width: info.width,
         height: info.height,
         framerate: info.fps,
@@ -58,10 +60,44 @@ pub fn metadata_tag(info: &StreamInfo) -> Result<TagBuf, flv::Error> {
         audio_sample_rate: info.sample_rate.unwrap_or(0),
         stereo: info.channels.unwrap_or(0) >= 2,
         encoder: format!("prostor/{}", env!("CARGO_PKG_VERSION")),
-    };
+    }
+}
+
+/// Builds the `onMetaData` tag for a stream.
+pub fn metadata_tag(info: &StreamInfo) -> Result<TagBuf, flv::Error> {
     let mut bytes = Vec::new();
-    write_metadata_tag(&metadata, mux_config(info), &mut bytes)?;
+    write_metadata_tag(&stream_metadata(info), mux_config(info), &mut bytes)?;
     Ok(parse_exact(&bytes)?.to_owned())
+}
+
+/// What happened to a pushed tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivery {
+    /// Written to the destination.
+    Sent,
+    /// Not written: the egress is reconnecting or waiting for a keyframe. Counted as a
+    /// drop; the egress stays alive.
+    Dropped,
+}
+
+/// How an egress is doing, for status reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Health {
+    pub phase: EgressPhase,
+    pub reconnects: u64,
+    /// The last problem in a few words, never containing a key; `None` when healthy.
+    pub detail: Option<String>,
+}
+
+impl Health {
+    /// Live, no reconnects, nothing to report.
+    pub fn live() -> Self {
+        Health {
+            phase: EgressPhase::Live,
+            reconnects: 0,
+            detail: None,
+        }
+    }
 }
 
 /// Why an egress stopped consuming.
@@ -71,6 +107,9 @@ pub enum EgressError {
     Flv(flv::Error),
     /// `push` after `stop`, or after an earlier failure.
     Closed,
+    /// The destination refused the stream for good (wrong key, unknown application,
+    /// an address the policy forbids); retrying would not help. Never contains a key.
+    Rejected(String),
 }
 
 impl fmt::Display for EgressError {
@@ -79,6 +118,7 @@ impl fmt::Display for EgressError {
             EgressError::Io(e) => write!(f, "i/o error: {e}"),
             EgressError::Flv(e) => write!(f, "flv error: {e}"),
             EgressError::Closed => write!(f, "egress is closed"),
+            EgressError::Rejected(why) => write!(f, "destination refused: {why}"),
         }
     }
 }
@@ -111,11 +151,17 @@ pub trait Egress: Send {
     /// Writes the stream preamble (file header, metadata, sequence headers).
     async fn start(&mut self, headers: &StreamHeaders) -> Result<(), EgressError>;
 
-    /// Consumes one tag. `seq` is the ingest sequence number, for status reports.
-    async fn push(&mut self, seq: u32, tag: &TagBuf) -> Result<(), EgressError>;
+    /// Consumes one tag. `seq` is the ingest sequence number, for status reports. An
+    /// error ends the egress for good; a transient problem is a [`Delivery::Dropped`].
+    async fn push(&mut self, seq: u32, tag: &TagBuf) -> Result<Delivery, EgressError>;
 
     /// Finalizes the output (flush, sync, close).
     async fn stop(&mut self) -> Result<(), EgressError>;
+
+    /// Current health; read after every `start` and `push`.
+    fn health(&self) -> Health {
+        Health::live()
+    }
 }
 
 #[cfg(test)]

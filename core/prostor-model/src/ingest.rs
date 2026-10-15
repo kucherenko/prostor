@@ -147,6 +147,8 @@ pub enum EgressPhase {
     Live,
     /// Consuming tags but dropping some (its queue overflowed).
     Degraded,
+    /// The connection was lost; tags are dropped until it is back.
+    Reconnecting,
     /// Stopped after an error; no longer consuming.
     Failed,
     /// Stopped cleanly.
@@ -167,11 +169,16 @@ pub struct EgressState {
     /// Tags handed to the egress so far.
     #[ts(type = "number")]
     pub tags: u64,
-    /// Tags dropped for this egress because its queue was full.
+    /// Tags dropped for this egress: its queue was full, or it was reconnecting.
     #[ts(type = "number")]
     pub dropped: u64,
     /// The newest sequence number the egress has consumed.
     pub last_seq: u32,
+    /// Connections re-established since the start (RTMP).
+    #[ts(type = "number")]
+    pub reconnects: u64,
+    /// The last problem, in a few words and never containing a key; `None` when healthy.
+    pub detail: Option<String>,
 }
 
 #[cfg(test)]
@@ -285,6 +292,8 @@ mod tests {
                     tags: 3,
                     dropped: 0,
                     last_seq: 3,
+                    reconnects: 0,
+                    detail: None,
                 }],
             })
             .unwrap(),
@@ -292,7 +301,8 @@ mod tests {
                 "type": "egress_status",
                 "egress": [{
                     "id": "file", "kind": "file", "state": "live",
-                    "bytes": 1024, "tags": 3, "dropped": 0, "last_seq": 3
+                    "bytes": 1024, "tags": 3, "dropped": 0, "last_seq": 3,
+                    "reconnects": 0, "detail": null
                 }]
             })
         );

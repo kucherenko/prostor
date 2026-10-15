@@ -19,10 +19,18 @@ bytes: number,
  */
 tags: number, 
 /**
- * Tags dropped for this egress because its queue was full.
+ * Tags dropped for this egress: its queue was full, or it was reconnecting.
  */
 dropped: number, 
 /**
  * The newest sequence number the egress has consumed.
  */
-last_seq: number, };
+last_seq: number, 
+/**
+ * Connections re-established since the start (RTMP).
+ */
+reconnects: number, 
+/**
+ * The last problem, in a few words and never containing a key; `None` when healthy.
+ */
+detail: string | null, };

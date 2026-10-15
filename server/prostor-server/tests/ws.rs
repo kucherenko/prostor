@@ -27,6 +27,7 @@ async fn serve_with(timeouts: Timeouts) -> (SocketAddr, tempfile::TempDir, Shutd
         web_dir: dir.path().to_path_buf(),
         recordings_dir: dir.path().join("recordings"),
         secret: None,
+        allow_private_destinations: false,
     };
     std::fs::create_dir_all(&config.recordings_dir).unwrap();
     let shutdown = Shutdown::new();
