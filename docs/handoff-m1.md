@@ -1,4 +1,4 @@
-# Handoff: Phase 0 milestones M1 and M2
+# Handoff: Phase 0 milestones M1 to M3
 
 Written 2026-10-14 when the local session stopped; updated by the cloud sessions that
 built M1 and M2. Read `CLAUDE.md`, `docs/plan-phase0.md` (M1 section) and
@@ -7,9 +7,9 @@ the wire reference.
 
 ## State
 
-- `main`: foundations, spikes, review fixes, M1 (PR #1 merged); the Docker cache-mount
-  fix is PR #2.
-- `feat/m2-rtmp-egress`: M2 (see "Done: M2" below), to be opened as a PR to `main`.
+- `main`: foundations, spikes, review fixes, M1 (PR #1), the Docker cache-mount fix
+  (PR #2), M2 (PR #3).
+- `feat/m3-board-editor`: M3 (see "Done: M3" below).
 - Maintainer decisions: Apache-2.0; pipeline-first order; "proceed with the implementation".
   Still open: AAC strategy (ADR 0005, option A recommended), a Twitch test key, a
   `spikes/webcodecs` run on any other producer OS.
@@ -85,19 +85,36 @@ the wire reference.
 - `docs/protocol-ingest.md` covers both sockets; plan M2 boxes ticked except the manual
   platform test; backlog items 4–8 closed.
 
+## Done: M3 (document, board editor, scene editor)
+
+- `prostor_model::command`: `Command` and `Event` (ts-rs); `prostor_engine::Engine`:
+  `load` (schema + invariants), `apply` with validation, `snapshot`, `render_plan` of the
+  live scene scaled from the 1920×1080 authoring space (backlog 12); wasm `Studio`
+  (`new`, `load`, `dispatch`, `snapshot`, `live`, `render_plan`), browser-tested.
+- Web: `board/store.svelte.ts` (runes store over `Studio`, debounced IndexedDB save,
+  starter board, import/export), `adapters/storage.ts` (IndexedDB, File System Access
+  API with download/upload fallback), `board/Board.svelte` (pan/zoom SVG, nodes, edges by
+  dragging the handle, double-click or keys 1–9 for program), `board/SceneEditor.svelte`
+  (16:9 editor with move/resize, layer list, fields, crop, z), `/studio` restructured;
+  image layers render in the compositor.
+- ADR 0006 written; plan M3 boxes ticked.
+
 ## Next
 
-1. Manual platform test with the maintainer's keys (plan M2, last two boxes): Twitch and
+1. Run the M3 check by hand in Chrome: two scenes and an edge, reload, everything back;
+   export, re-import; the program preview follows the live scene. Then M4 (transitions
+   and the mixer) per the plan; it needs an `update_transition` command and partial layer
+   patches (ADR 0006 consequences).
+2. Manual platform test with the maintainer's keys (plan M2, last two boxes): Twitch and
    YouTube live within 10 s, unplug the network for 5 s, both recover, recording intact.
    Record reconnect behaviour per platform in `docs/spikes/0002` and accept ADR 0004.
    Watch for: the FP9 handshake, `flashVer`, the object-shaped `onMetaData` (ADR 0004
    risks), and whether platforms accept a stream that restarts at timestamp 0 after a
    reconnect.
-2. The M1 check on macOS (hardware encoder + AAC): 60 s session, VLC playback, lag on
+3. The M1 check on macOS (hardware encoder + AAC): 60 s session, VLC playback, lag on
    loopback, A/V offset with a clap; tune `AAC_PRIMING_SAMPLES` from the measurement.
-3. A fresh review of M1 + M2 (worker error paths, the browser reconnect path, the
-   supervisor's drop policy under a wedged destination), then M3 (document, board editor,
-   scene editor) per the plan.
+4. A fresh review of M1 to M3 (worker error paths, the browser reconnect path, the
+   supervisor's drop policy under a wedged destination, the editor's command flow).
 
 ## Environment notes
 

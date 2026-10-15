@@ -14,6 +14,10 @@ milestone that touches the code, with a regression test each.
 - 3 (`TimestampMapper` throws on early audio): timestamps up to 200 ms before the origin
   map to 0 (`EARLY_WINDOW_MS`); the Worker pins the origin at session start and subtracts
   the AAC priming delay from audio.
+- 9 (`IngestClientMessage` `Debug` prints `auth`): hand-written `Debug` with `<redacted>`.
+- 10 (`EgressState` u64 fields export as `bigint`): `#[ts(type = "number")]`.
+- 11 (`Close` dropped before the reply is flushed): `Peer` completes every close
+  handshake, bounded by 2 s; tests assert the code the client sees.
 
 ## Closed in M2
 
@@ -28,15 +32,14 @@ milestone that touches the code, with a regression test each.
 - 8 (`Error` prints server bytes): variant names only.
 - Secret + `Origin` enforcement on both upgrades, and connect-time refusal of private
   ranges with connect/handshake timeouts: done.
-- 9 (`IngestClientMessage` `Debug` prints `auth`): hand-written `Debug` with `<redacted>`.
-- 10 (`EgressState` u64 fields export as `bigint`): `#[ts(type = "number")]`.
-- 11 (`Close` dropped before the reply is flushed): `Peer` completes every close
-  handshake, bounded by 2 s; tests assert the code the client sees.
+
+## Closed in M3
+
+- 12 (`render_plan` clamps instead of scaling): layers scale from the 1920×1080 authoring
+  space to the program, then clamp; crops pass through in source pixels and the compositor
+  honours them.
 
 ## Warnings
-12. `core/prostor-engine/src/layout.rs` `render_plan` clamps to the program instead of
-    scaling from the 1920×1080 authoring space and ignores `crop`; on 1280×720 the sample
-    title is invisible. (M3, or M1 if the program size becomes configurable.)
 
 ## Suggestions
 
