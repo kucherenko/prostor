@@ -63,20 +63,22 @@ pub struct Target {
 
 impl Target {
     /// Parses an ingest URL. The last path segment is the stream key, everything before
-    /// it is the application name (Twitch: `app`, YouTube: `live2`).
+    /// it is the application name (Twitch: `app`, YouTube: `live2`). A query string stays
+    /// on the key: platforms use it for key parameters (`?bandwidthtest=true`, `?backup=1`).
     pub fn parse(url: &str) -> Result<Self, Error> {
-        let (tls, host, port, path) = parse_parts(url)?;
+        let (tls, host, port, path, query) = parse_parts(url)?;
         let (app, key) = path
             .rsplit_once('/')
             .ok_or(Error::InvalidUrl(UrlProblem::MissingKey))?;
-        Target::build(tls, host, port, app, key)
+        Target::build(tls, host, port, app, &with_query(key, query))
     }
 
-    /// Builds a target from a key-less URL (`rtmp://host[:port]/app`, as stored in the
-    /// board document) and the key kept separately.
+    /// Builds a target from a key-less URL (`rtmp://host[:port]/app[?params]`, as stored
+    /// in the board document) and the key kept separately. A query string on the URL is
+    /// appended to the key, which is where the server expects it.
     pub fn new(url_without_key: &str, stream_key: &str) -> Result<Self, Error> {
-        let (tls, host, port, app) = parse_parts(url_without_key)?;
-        Target::build(tls, host, port, app, stream_key)
+        let (tls, host, port, app, query) = parse_parts(url_without_key)?;
+        Target::build(tls, host, port, app, &with_query(stream_key, query))
     }
 
     fn build(tls: bool, host: &str, port: u16, app: &str, key: &str) -> Result<Self, Error> {
@@ -109,9 +111,9 @@ impl Target {
     }
 }
 
-/// Splits `scheme://authority/path` into `(tls, host, port, path)`; the path has no
-/// leading or trailing slashes.
-fn parse_parts(url: &str) -> Result<(bool, &str, u16, &str), Error> {
+/// Splits `scheme://authority/path?query` into `(tls, host, port, path, query)`; the path
+/// has no leading or trailing slashes and the query, when present, no `?`.
+fn parse_parts(url: &str) -> Result<(bool, &str, u16, &str, Option<&str>), Error> {
     let (scheme, rest) = url
         .split_once("://")
         .ok_or(Error::InvalidUrl(UrlProblem::Scheme))?;
@@ -147,9 +149,18 @@ fn parse_parts(url: &str) -> Result<(bool, &str, u16, &str), Error> {
             UrlProblem::TooLong
         }));
     }
-    let path = path.trim_matches('/');
-    let path = path.split_once('?').map_or(path, |(p, _)| p);
-    Ok((tls, host, port, path))
+    let (path, query) = match path.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (path, None),
+    };
+    Ok((tls, host, port, path.trim_matches('/'), query))
+}
+
+fn with_query(key: &str, query: Option<&str>) -> String {
+    match query {
+        Some(query) if !key.is_empty() => format!("{key}?{query}"),
+        _ => key.to_owned(),
+    }
 }
 
 fn parse_port(port: &str) -> Result<u16, Error> {
@@ -287,8 +298,8 @@ pub enum State {
     Failed,
 }
 
-/// Session error.
-#[derive(Debug)]
+/// Session error. `Debug` and `Display` print variant names only: the wrapped `rml_rtmp`
+/// errors can carry text decoded from server bytes, which may include the key.
 pub enum Error {
     InvalidUrl(UrlProblem),
     Handshake(HandshakeError),
@@ -300,16 +311,86 @@ pub enum Error {
     Failed,
 }
 
+impl Error {
+    /// A short, fixed name for the error, safe to log.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Error::InvalidUrl(_) => "invalid url",
+            Error::Handshake(e) => handshake_error_name(e),
+            Error::Session(e) => session_error_name(e),
+            Error::Flv(_) => "invalid flv tag",
+            Error::NotPublishing(_) => "not publishing",
+            Error::Failed => "session failed",
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::InvalidUrl(problem) => write!(f, "invalid RTMP url ({problem:?})"),
-            Error::Handshake(e) => write!(f, "RTMP handshake failed: {e}"),
-            Error::Session(e) => write!(f, "RTMP session error: {e}"),
+            Error::Handshake(_) => write!(f, "RTMP handshake failed: {}", self.kind()),
+            Error::Session(_) => write!(f, "RTMP session error: {}", self.kind()),
             Error::Flv(e) => write!(f, "invalid FLV tag: {e}"),
             Error::NotPublishing(state) => write!(f, "not publishing (state {state:?})"),
             Error::Failed => write!(f, "session failed"),
         }
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::InvalidUrl(problem) => f.debug_tuple("InvalidUrl").field(problem).finish(),
+            Error::Handshake(_) | Error::Session(_) => {
+                write!(f, "{}({})", variant_name(self), self.kind())
+            }
+            Error::Flv(e) => f.debug_tuple("Flv").field(e).finish(),
+            Error::NotPublishing(state) => f.debug_tuple("NotPublishing").field(state).finish(),
+            Error::Failed => f.write_str("Failed"),
+        }
+    }
+}
+
+fn variant_name(error: &Error) -> &'static str {
+    match error {
+        Error::InvalidUrl(_) => "InvalidUrl",
+        Error::Handshake(_) => "Handshake",
+        Error::Session(_) => "Session",
+        Error::Flv(_) => "Flv",
+        Error::NotPublishing(_) => "NotPublishing",
+        Error::Failed => "Failed",
+    }
+}
+
+fn handshake_error_name(error: &HandshakeError) -> &'static str {
+    match error {
+        HandshakeError::BadVersionId => "bad version id",
+        HandshakeError::NonZeroedTimeInPacket1 => "non-zero time in packet 1",
+        HandshakeError::IncorrectPeerTime => "incorrect peer time",
+        HandshakeError::IncorrectRandomData => "incorrect random data",
+        HandshakeError::HandshakeAlreadyCompleted => "handshake already completed",
+        #[allow(unreachable_patterns)]
+        _ => "handshake error",
+    }
+}
+
+fn session_error_name(error: &ClientSessionError) -> &'static str {
+    match error {
+        ClientSessionError::ChunkDeserializationError(_) => "chunk deserialization error",
+        ClientSessionError::ChunkSerializationError(_) => "chunk serialization error",
+        ClientSessionError::MessageSerializationError(_) => "message serialization error",
+        ClientSessionError::MessageDeserializationError(_) => "message deserialization error",
+        ClientSessionError::CantConnectWhileAlreadyConnected => "already connected",
+        ClientSessionError::SessionInInvalidState { .. } => "session in invalid state",
+        ClientSessionError::NoKnownActiveStreamIdWhenRequired => "no active stream id",
+        ClientSessionError::CreateStreamFailed => "createStream failed",
+        ClientSessionError::CreateStreamResponseHadNoStreamNumber => {
+            "createStream result without a stream id"
+        }
+        ClientSessionError::InvalidOnStatusArguments => "invalid onStatus arguments",
+        #[allow(unreachable_patterns)]
+        _ => "session error",
     }
 }
 
@@ -366,10 +447,12 @@ impl Publisher {
         &self.target
     }
 
-    /// Feeds bytes received from the server.
+    /// Feeds bytes received from the server. After [`Publisher::stop`] input is ignored:
+    /// a late reply can neither revive the session nor make it resend the key.
     pub fn handle_input(&mut self, bytes: &[u8], out: &mut Vec<Output>) -> Result<(), Error> {
         self.fallible(|this| match this.state {
             State::Handshaking => this.handshake_input(bytes, out),
+            State::Stopped => Ok(()),
             _ => this.session_input(bytes, out),
         })
     }
@@ -422,14 +505,22 @@ impl Publisher {
         })
     }
 
-    /// Ends publishing (`deleteStream`). The caller closes the socket afterwards.
+    /// Ends publishing (`deleteStream`). The caller closes the socket afterwards. The
+    /// session is terminal from here on: input is ignored and nothing else is sent.
     pub fn stop(&mut self, out: &mut Vec<Output>) -> Result<(), Error> {
         self.fallible(|this| {
-            if let Some(session) = this.session.as_mut() {
+            if this.state == State::Stopped {
+                return Ok(());
+            }
+            if this.state == State::Publishing
+                && let Some(session) = this.session.as_mut()
+            {
                 let results = session.stop_publishing()?;
                 this.absorb(results, out)?;
             }
             this.state = State::Stopped;
+            this.handshake = None;
+            this.session = None;
             Ok(())
         })
     }
@@ -548,8 +639,18 @@ impl Publisher {
                 out.push(Output::Event(Event::Publishing));
             }
             ClientSessionEvent::UnhandleableOnStatusCode { code } => {
+                // While a request is pending, any status for it other than the one
+                // rml_rtmp consumes (`Connect.Success`, `Publish.Start`) is an answer that
+                // will never turn into an acceptance: treat it as a rejection rather than
+                // waiting forever (e.g. `NetStream.Publish.Unauthorized`).
+                let pending = match self.state {
+                    State::Connecting => code.starts_with("NetConnection.Connect."),
+                    State::RequestingStream => code.starts_with("NetStream.Publish."),
+                    _ => false,
+                };
                 match RejectCode::from_code(&code) {
                     Some(reject) => self.reject(reject, &code, out),
+                    None if pending => self.reject(RejectCode::Other, &code, out),
                     None => out.push(Output::Event(Event::Status {
                         code: self.sanitize(&code),
                     })),
@@ -675,7 +776,18 @@ mod tests {
         assert_eq!(trailing.stream_key.expose_secret(), "key");
 
         let query = Target::parse("rtmp://127.0.0.1/live/key?x=1").unwrap();
-        assert_eq!(query.stream_key.expose_secret(), "key");
+        assert_eq!(
+            query.stream_key.expose_secret(),
+            "key?x=1",
+            "query parameters belong to the key (Twitch ?bandwidthtest, YouTube ?backup)"
+        );
+        assert_eq!(query.app, "live");
+        let twitch =
+            Target::parse("rtmp://live.twitch.tv/app/live_1_a?bandwidthtest=true").unwrap();
+        assert_eq!(
+            twitch.stream_key.expose_secret(),
+            "live_1_a?bandwidthtest=true"
+        );
     }
 
     #[test]
@@ -707,6 +819,9 @@ mod tests {
         assert_eq!(target.stream_key.expose_secret(), "abcd-efgh");
         let nested = Target::new("rtmp://host:1935/live/room/", "k").unwrap();
         assert_eq!(nested.app, "live/room");
+        let backup = Target::new("rtmp://b.rtmp.youtube.com/live2?backup=1", "abcd").unwrap();
+        assert_eq!(backup.app, "live2");
+        assert_eq!(backup.stream_key.expose_secret(), "abcd?backup=1");
         assert!(matches!(
             Target::new("rtmp://host/live2", ""),
             Err(Error::InvalidUrl(UrlProblem::MissingKey))
@@ -854,6 +969,8 @@ mod tests {
         Accept,
         RejectConnect,
         RejectPublish,
+        /// Rejects the publish with a status code outside the known list.
+        RejectPublishUnknownCode,
     }
 
     /// An in-process RTMP server (handshake + `rml_rtmp::ServerSession`) wired back to
@@ -933,6 +1050,16 @@ mod tests {
                                     *request_id,
                                     "NetStream.Publish.BadName",
                                     &format!("stream {stream_key} is not allowed"),
+                                )
+                                .unwrap(),
+                            (
+                                ServerSessionEvent::PublishStreamRequested { request_id, .. },
+                                ServerPolicy::RejectPublishUnknownCode,
+                            ) => session
+                                .reject_request(
+                                    *request_id,
+                                    "NetStream.Publish.Unauthorized",
+                                    "bad key",
                                 )
                                 .unwrap(),
                             (ServerSessionEvent::PublishStreamRequested { request_id, .. }, _) => {
@@ -1202,6 +1329,77 @@ mod tests {
             h.publisher.publish_tag(&tag, &mut outputs),
             Err(Error::Failed)
         ));
+    }
+
+    #[test]
+    fn an_unknown_publish_status_while_waiting_is_a_rejection() {
+        let mut h = Harness::new(ServerPolicy::RejectPublishUnknownCode);
+        h.pump().unwrap();
+        assert_eq!(
+            h.publisher.state(),
+            State::Failed,
+            "not stuck in RequestingStream"
+        );
+        assert!(h.events().iter().any(|e| matches!(
+            e,
+            Event::Rejected {
+                code: RejectCode::Other,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn stopped_is_terminal() {
+        let mut h = Harness::new(ServerPolicy::Accept);
+        h.pump().unwrap();
+        let mut outputs = Vec::new();
+        h.publisher.stop(&mut outputs).unwrap();
+        assert!(!outputs.is_empty(), "deleteStream goes out");
+        h.take(outputs);
+        h.pump().unwrap();
+        assert_eq!(h.publisher.state(), State::Stopped);
+        let sent_before = h.outputs.len();
+
+        // A late server reply (a fresh connect result replayed) changes nothing.
+        let mut outputs = Vec::new();
+        let late = std::mem::take(&mut h.server_to_client);
+        h.publisher.handle_input(&late, &mut outputs).unwrap();
+        h.publisher.handle_input(&[3; 64], &mut outputs).unwrap();
+        assert!(outputs.is_empty(), "no output after stop: {outputs:?}");
+        h.publisher.stop(&mut outputs).unwrap();
+        assert!(outputs.is_empty(), "a second stop is a no-op");
+        assert_eq!(h.outputs.len(), sent_before);
+        assert_eq!(h.publisher.state(), State::Stopped);
+        let tag = flv::Tag {
+            kind: TagKind::Audio,
+            timestamp_ms: 0,
+            body: &[0xAF, 1, 0],
+        };
+        assert!(matches!(
+            h.publisher.publish_tag(&tag, &mut outputs),
+            Err(Error::NotPublishing(State::Stopped))
+        ));
+    }
+
+    #[test]
+    fn errors_print_variant_names_only() {
+        let session = Error::Session(ClientSessionError::InvalidOnStatusArguments);
+        assert_eq!(
+            format!("{session:?}"),
+            "Session(invalid onStatus arguments)"
+        );
+        assert_eq!(
+            session.to_string(),
+            "RTMP session error: invalid onStatus arguments"
+        );
+        let handshake = Error::Handshake(HandshakeError::BadVersionId);
+        assert_eq!(format!("{handshake:?}"), "Handshake(bad version id)");
+        assert_eq!(format!("{:?}", Error::Failed), "Failed");
+        assert_eq!(
+            format!("{:?}", Error::NotPublishing(State::Stopped)),
+            "NotPublishing(Stopped)"
+        );
     }
 
     #[test]
