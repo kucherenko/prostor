@@ -126,20 +126,21 @@ a key.
 
 Goal: scenes come from the board, not from code, and survive a reload.
 
-- [ ] `prostor-model`: freeze schema v1 (string ids, `schema_version`); `Command` enum
+- [x] `prostor-model`: freeze schema v1 (string ids, `schema_version`); `Command` enum
       (scene add/move/remove, layer add/update/remove, transition add/remove, set live) and
       `Event` enum; ts-rs types.
-- [ ] `prostor-engine`: `apply(doc, cmd) -> Result<Vec<Event>>` with validation (dangling
-      ids, z-order, program bounds); `RenderPlan` (per-layer rects, crop, z, opacity) from the
-      live scene; exhaustive unit tests.
-- [ ] `prostor-wasm`: `Studio` facade (`load`, `dispatch`, `snapshot`, `render_plan(now)`).
-- [ ] `/studio` board: pan/zoom canvas, scene nodes (create, move, delete), transition edges,
-      live scene by click or keys 1–9; program preview.
-- [ ] Scene editor: layers (camera, screen share, image, text, color) with position, size,
-      z-order, crop in a 16:9 editor.
-- [ ] `adapters/storage`: IndexedDB persistence; import/export via the File System Access
-      API.
-- [ ] ADR 0006: document schema and command model (ids, versioning, CRDT readiness).
+- [x] `prostor-engine`: `Engine::apply(cmd) -> Result<Vec<Event>>` with validation (dangling
+      ids, duplicates, program bounds, names); `RenderPlan` from the live scene, scaled from
+      the 1920×1080 authoring space (backlog 12); unit tests.
+- [x] `prostor-wasm`: `Studio` facade (`load`, `dispatch`, `snapshot`, `render_plan(now)`).
+- [x] `/studio` board: pan/zoom canvas, scene nodes (create, move, delete), transition edges,
+      live scene by double-click or keys 1–9; program preview is the compositor's output.
+- [x] Scene editor: layers (camera, screen share, image, text, color) with position, size,
+      z-order, crop in a 16:9 editor. Image layers render in the compositor; screen share
+      and guests draw a placeholder until M5.
+- [x] `adapters/storage`: IndexedDB persistence; import/export via the File System Access
+      API (download/upload fallback).
+- [x] ADR 0006: document schema and command model (ids, versioning, CRDT readiness).
 - Check: build two scenes and an edge, reload, everything is back; export, re-import; the
   compositor renders whatever the board says.
 

@@ -2,14 +2,19 @@
 
 use prostor_model::{Rect, RenderLayer, RenderPlan, Scene};
 
-/// Computes the drawing order and the clamped destination rectangles of a scene's layers
-/// for a program of `program.0 × program.1` pixels.
+/// Computes the drawing order and the destination rectangles of a scene's layers for a
+/// program of `program.0 × program.1` pixels.
 ///
-/// Layers are sorted by [`prostor_model::Layer::z`] (stable, so equal `z` keeps the
-/// scene's order), rectangles are clamped to the program, crops pass through unchanged and
-/// every layer is fully opaque. Transitions animate opacity and rectangles later.
+/// Layers are authored in the 1920×1080 space of [`Rect`] (see
+/// [`prostor_model::PROGRAM_WIDTH`]); they are scaled to the program and then clamped to
+/// it, so a 720p output shows the same picture as 1080p. Layers are sorted by
+/// [`prostor_model::Layer::z`] (stable, so equal `z` keeps the scene's order), crops pass
+/// through unchanged (they are in source pixels) and every layer is fully opaque.
+/// Transitions animate opacity and rectangles later.
 pub fn render_plan(scene: &Scene, program: (u32, u32)) -> RenderPlan {
     let (width, height) = program;
+    let sx = f64::from(width) / Rect::FULL.w;
+    let sy = f64::from(height) / Rect::FULL.h;
     let mut layers: Vec<&prostor_model::Layer> = scene.layers.iter().collect();
     layers.sort_by_key(|layer| layer.z);
     RenderPlan {
@@ -20,12 +25,25 @@ pub fn render_plan(scene: &Scene, program: (u32, u32)) -> RenderPlan {
             .map(|layer| RenderLayer {
                 id: layer.id.clone(),
                 kind: layer.kind.clone(),
-                rect: clamp(layer.rect, f64::from(width), f64::from(height)),
+                rect: clamp(
+                    scale(layer.rect, sx, sy),
+                    f64::from(width),
+                    f64::from(height),
+                ),
                 crop: layer.crop,
                 z: layer.z,
                 opacity: 1.0,
             })
             .collect(),
+    }
+}
+
+fn scale(rect: Rect, sx: f64, sy: f64) -> Rect {
+    Rect {
+        x: rect.x * sx,
+        y: rect.y * sy,
+        w: rect.w * sx,
+        h: rect.h * sy,
     }
 }
 
@@ -157,6 +175,38 @@ mod tests {
     }
 
     #[test]
+    fn scales_from_the_authoring_space_to_the_program() {
+        let title = layer(
+            "title",
+            1,
+            Rect {
+                x: 96.0,
+                y: 880.0,
+                w: 1200.0,
+                h: 120.0,
+            },
+        );
+        let plan = render_plan(&scene(vec![title]), (1280, 720));
+        let rect = plan.layers[0].rect;
+        assert!((rect.x - 64.0).abs() < 1e-9);
+        assert!((rect.y - 586.6666).abs() < 1e-3, "{rect:?}");
+        assert!((rect.w - 800.0).abs() < 1e-9);
+        assert!((rect.h - 80.0).abs() < 1e-9);
+        assert!(rect.y + rect.h <= 720.0, "the title stays visible on 720p");
+
+        let plan = render_plan(&scene(vec![layer("full", 0, Rect::FULL)]), (3840, 2160));
+        assert_eq!(
+            plan.layers[0].rect,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 3840.0,
+                h: 2160.0
+            }
+        );
+    }
+
+    #[test]
     fn passes_crops_through_and_handles_an_empty_scene() {
         let mut cropped = layer("c", 0, Rect::FULL);
         let crop = Rect {
@@ -176,7 +226,7 @@ mod tests {
                 w: 1280.0,
                 h: 720.0
             },
-            "the 1920x1080 full rect is clamped to a 720p program"
+            "the 1920x1080 full rect scales to a 720p program"
         );
 
         let empty = render_plan(&scene(vec![]), (1920, 1080));

@@ -3,7 +3,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use js_sys::{ArrayBuffer, DataView, Uint8Array};
-use prostor_model::{LayerKind, RenderPlan, Scene};
+use prostor_model::{BoardDocument, Event, LayerKind, RenderPlan, Scene};
 use prostor_protocol::flv::{AvcPacketType, Header, MAX_BODY_LEN, TagKind, parse_exact, parse_tag};
 use prostor_wasm::BufferSource;
 use wasm_bindgen::JsCast;
@@ -210,4 +210,63 @@ fn flv_muxer_rejects_bad_timestamps_and_oversized_bodies() {
         muxer.audio(30.0, &[1]).is_ok(),
         "errors do not poison the muxer"
     );
+}
+
+fn js(json: &str) -> wasm_bindgen::JsValue {
+    js_sys::JSON::parse(json).expect("valid json")
+}
+
+#[wasm_bindgen_test]
+fn studio_applies_commands_snapshots_and_renders_the_live_scene() {
+    let mut studio = prostor_wasm::Studio::new("b1", "My board");
+    assert_eq!(studio.live(), None);
+    let events = studio
+        .dispatch(js(
+            r#"{"type":"add_scene","id":"s1","name":"One","position":{"x":10,"y":20}}"#,
+        ))
+        .expect("add_scene");
+    let events: Vec<Event> = serde_wasm_bindgen::from_value(events).unwrap();
+    assert!(matches!(&events[0], Event::SceneAdded { scene } if scene.name == "One"));
+    studio
+        .dispatch(js(
+            r#"{"type":"add_layer","scene":"s1","layer":{"id":"l1","name":"Cam","kind":{"type":"camera"},"rect":{"x":0,"y":0,"w":1920,"h":1080},"z":0,"crop":null}}"#,
+        ))
+        .expect("add_layer");
+    assert!(
+        studio
+            .dispatch(js(r#"{"type":"set_live","scene":"nope"}"#))
+            .is_err()
+    );
+    assert!(studio.dispatch(js(r#"{"type":"nonsense"}"#)).is_err());
+    assert!(
+        studio
+            .dispatch(wasm_bindgen::JsValue::from_str("x"))
+            .is_err()
+    );
+
+    let empty = studio.render_plan(0.0, 1280, 720).unwrap();
+    let empty: RenderPlan = serde_wasm_bindgen::from_value(empty).unwrap();
+    assert!(empty.layers.is_empty(), "nothing live yet");
+    studio
+        .dispatch(js(r#"{"type":"set_live","scene":"s1"}"#))
+        .unwrap();
+    assert_eq!(studio.live().as_deref(), Some("s1"));
+    let plan = studio.render_plan(0.0, 1280, 720).unwrap();
+    let plan: RenderPlan = serde_wasm_bindgen::from_value(plan).unwrap();
+    assert_eq!(plan.layers.len(), 1);
+    assert_eq!(plan.layers[0].rect.w, 1280.0);
+
+    let snapshot = studio.snapshot().unwrap();
+    let document: BoardDocument = serde_wasm_bindgen::from_value(snapshot.clone()).unwrap();
+    assert_eq!(document.board.name, "My board");
+    assert_eq!(document.board.scenes[0].layers.len(), 1);
+
+    let reloaded = prostor_wasm::Studio::load(snapshot).expect("load");
+    assert_eq!(reloaded.live(), None, "the live selection is not persisted");
+    let again: BoardDocument =
+        serde_wasm_bindgen::from_value(reloaded.snapshot().unwrap()).unwrap();
+    assert_eq!(again, document);
+
+    assert!(prostor_wasm::Studio::load(js(r#"{"schema_version":2,"board":{}}"#)).is_err());
+    assert!(prostor_wasm::Studio::load(js("[]")).is_err());
 }

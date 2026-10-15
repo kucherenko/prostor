@@ -55,6 +55,11 @@ export class Renderer {
 	private cameraSize: [number, number] = [0, 0];
 	private readonly textTextures = new Map<string, TextTexture>();
 	private textCanvas: OffscreenCanvas | null = null;
+	/** Image layers by `src`: `null` while loading or after a failure. */
+	private readonly images = new Map<
+		string,
+		{ texture: WebGLTexture; width: number; height: number } | null
+	>();
 
 	constructor(plan: RenderPlan) {
 		this.plan = plan;
@@ -164,6 +169,25 @@ export class Renderer {
 				gl.uniform1f(this.uniforms.textured, 1);
 				break;
 			}
+			case 'image': {
+				const image = this.imageTexture(layer.kind.src);
+				if (!image) {
+					gl.uniform4f(this.uniforms.color, 0.16, 0.16, 0.18, 1);
+					gl.uniform1f(this.uniforms.textured, 0);
+					break;
+				}
+				gl.bindTexture(gl.TEXTURE_2D, image.texture);
+				const [u0, v0, u1, v1] = sourceUv(
+					image.width,
+					image.height,
+					layer.rect.w,
+					layer.rect.h,
+					layer.crop
+				);
+				gl.uniform4f(this.uniforms.uv, u0, v0, u1, v1);
+				gl.uniform1f(this.uniforms.textured, 1);
+				break;
+			}
 			case 'color': {
 				const [r, g, b, a] = layer.kind.rgba;
 				// Premultiplied, to match the blend function.
@@ -235,6 +259,25 @@ export class Renderer {
 		return entry;
 	}
 
+	/** The texture for an image `src`, started loading on first use (same origin or data URL). */
+	private imageTexture(src: string) {
+		if (this.images.has(src)) return this.images.get(src) ?? null;
+		this.images.set(src, null);
+		void fetch(src)
+			.then((response) => (response.ok ? response.blob() : Promise.reject(response.status)))
+			.then((blob) => createImageBitmap(blob))
+			.then((bitmap) => {
+				const gl = this.gl;
+				const texture = createTexture(gl);
+				gl.bindTexture(gl.TEXTURE_2D, texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
+				this.images.set(src, { texture, width: bitmap.width, height: bitmap.height });
+				bitmap.close();
+			})
+			.catch(() => this.images.set(src, null));
+		return null;
+	}
+
 	/** Releases the camera frame and GPU resources. */
 	dispose(): void {
 		this.cameraFrame?.close();
@@ -242,6 +285,8 @@ export class Renderer {
 		const gl = this.gl;
 		for (const entry of this.textTextures.values()) gl.deleteTexture(entry.texture);
 		this.textTextures.clear();
+		for (const image of this.images.values()) if (image) gl.deleteTexture(image.texture);
+		this.images.clear();
 		gl.deleteTexture(this.cameraTexture);
 	}
 }

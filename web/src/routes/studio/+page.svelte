@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { resolve } from '$app/paths';
-	import type { RenderPlan } from '#lib/generated/RenderPlan';
+	import Board from '#lib/board/Board.svelte';
+	import SceneEditor from '#lib/board/SceneEditor.svelte';
+	import { BoardStore } from '#lib/board/store.svelte';
+	import { exportDocument, importDocument } from '#lib/adapters/storage';
 	import {
 		loadDestinations,
 		maskKey,
@@ -14,8 +17,6 @@
 	import { SignalingClient } from '#lib/adapters/signaling';
 	import { emptyStatus, type PipelineStatus } from '#lib/render/messages';
 	import { StudioPipeline } from '#lib/render/pipeline';
-	import { helloScene, loadWasm } from '#lib/wasm';
-	import { render_plan } from '#lib/wasm/pkg/prostor_wasm.js';
 
 	const WIDTH = 1920;
 	const HEIGHT = 1080;
@@ -37,6 +38,7 @@
 	let status = $state<PipelineStatus>(emptyStatus());
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
 	let destinations = $state<StoredDestination[]>([]);
+	let store = $state<BoardStore | null>(null);
 	let revealKeys = $state(false);
 	let armed = $state<string[]>([]);
 
@@ -50,6 +52,13 @@
 
 	onMount(async () => {
 		destinations = loadDestinations();
+		try {
+			store = await BoardStore.open();
+		} catch (cause) {
+			error = `board: ${cause instanceof Error ? cause.message : String(cause)}`;
+			phase = 'idle';
+			return;
+		}
 		const support = captureSupport();
 		if (!support.ok) {
 			missing = support.missing;
@@ -57,8 +66,7 @@
 			return;
 		}
 		try {
-			await loadWasm();
-			const plan = render_plan(await helloScene(), WIDTH, HEIGHT) as RenderPlan;
+			const plan = store.renderPlan(WIDTH, HEIGHT);
 			pipeline = new StudioPipeline({
 				onStatus: (next) => (status = next),
 				onStarted: () => undefined,
@@ -80,7 +88,46 @@
 	onDestroy(() => {
 		signaling?.close();
 		void pipeline?.dispose();
+		void store?.flush();
 	});
+
+	// The compositor always draws what the board says is live.
+	$effect(() => {
+		if (!store || !pipeline) return;
+		void store.doc;
+		void store.live;
+		pipeline.setPlan(store.renderPlan(WIDTH, HEIGHT));
+	});
+
+	function onKey(event: KeyboardEvent) {
+		if (!store) return;
+		const target = event.target as HTMLElement | null;
+		if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+		const digit = Number(event.key);
+		if (Number.isInteger(digit) && digit >= 1 && digit <= 9) {
+			const scene = store.scenes[digit - 1];
+			if (scene) store.dispatch({ type: 'set_live', scene: scene.id });
+		}
+	}
+
+	async function exportBoard() {
+		if (!store) return;
+		try {
+			await exportDocument(store.doc);
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	async function importBoard() {
+		if (!store) return;
+		try {
+			const document = await importDocument();
+			if (document) store.replace(document);
+		} catch (cause) {
+			error = `import: ${cause instanceof Error ? cause.message : String(cause)}`;
+		}
+	}
 
 	function addDestination() {
 		destinations = [...destinations, newDestination()];
@@ -181,23 +228,92 @@
 	const fmtMb = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 </script>
 
-<main class="mx-auto max-w-5xl p-6 font-sans">
-	<header class="flex items-baseline justify-between">
+<svelte:window onkeydown={onKey} />
+
+<main class="mx-auto max-w-7xl p-6 font-sans">
+	<header class="flex items-baseline justify-between gap-4">
 		<h1 class="text-3xl font-bold">Studio</h1>
+		{#if store}
+			<input
+				class="min-w-0 flex-1 rounded border px-2 py-1 text-lg"
+				value={store.doc.board.name}
+				onchange={(e) =>
+					store?.dispatch({
+						type: 'rename_board',
+						name: (e.currentTarget as HTMLInputElement).value
+					})}
+				aria-label="Board name"
+				data-testid="board-name"
+			/>
+			<button
+				type="button"
+				class="rounded border px-3 py-1 text-sm"
+				onclick={exportBoard}
+				data-testid="export">Export</button
+			>
+			<button
+				type="button"
+				class="rounded border px-3 py-1 text-sm"
+				onclick={importBoard}
+				data-testid="import">Import</button
+			>
+		{/if}
 		<a class="text-blue-700 underline" href={resolve('/')}>Back</a>
 	</header>
-	<p class="mt-1 text-sm text-gray-600">
-		Camera + title → WebGL2 compositor → H.264/AAC → FLV → the server's recording and the RTMP
-		destinations below.
-	</p>
 
 	{#if phase === 'unsupported'}
 		<p class="mt-4 text-red-700" data-testid="error">
 			This browser lacks {missing.join(', ')}. Use a current Chrome.
 		</p>
 	{/if}
+	{#if store?.storageError}
+		<p class="mt-2 text-sm text-amber-700" data-testid="storage-error">{store.storageError}</p>
+	{/if}
+	{#if store?.lastError}
+		<p class="mt-2 text-sm text-red-700" data-testid="command-error">Refused: {store.lastError}</p>
+	{/if}
 
-	<section class="mt-4 grid gap-4 md:grid-cols-[2fr_1fr]">
+	{#if store}
+		<section class="mt-4 grid gap-4 lg:grid-cols-[3fr_2fr]">
+			<div>
+				<Board {store} />
+			</div>
+			<div data-testid="scene-panel">
+				<SceneEditor {store} />
+				{#if store.selectedTransition}
+					{@const t = store.transitions.find((x) => x.id === store?.selectedTransition)}
+					{#if t}
+						<div class="mt-3 rounded border p-2 text-sm" data-testid="transition-panel">
+							<div class="flex items-center justify-between">
+								<span class="font-semibold">
+									Transition {store.scene(t.from)?.name} → {store.scene(t.to)?.name}
+								</span>
+								<button
+									type="button"
+									class="rounded border px-2 py-1 text-red-700"
+									onclick={() => store?.dispatch({ type: 'remove_transition', id: t.id })}
+									data-testid="delete-transition">Delete</button
+								>
+							</div>
+							<p class="mt-1 text-xs text-gray-500">
+								{t.kind.type}{t.kind.type === 'cut' ? '' : `, ${t.duration_ms} ms`}. Crossfades and
+								slides animate in M4; until then every switch is a cut.
+							</p>
+						</div>
+					{/if}
+				{/if}
+			</div>
+		</section>
+	{/if}
+
+	<h2 class="mt-6 flex items-center gap-3 text-lg font-semibold">
+		Program
+		<span class="text-sm font-normal text-gray-500" data-testid="program-scene">
+			{store?.scene(store.live)?.name ?? 'nothing on program'}
+		</span>
+	</h2>
+
+	<section class="mt-2 grid gap-4 md:grid-cols-[2fr_1fr]">
 		<canvas
 			bind:this={previewCanvas}
 			class="aspect-video w-full rounded bg-black"
