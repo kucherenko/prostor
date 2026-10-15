@@ -171,7 +171,7 @@ export class BoardStore {
 		if (this.saveTimer) clearTimeout(this.saveTimer);
 		this.saveTimer = setTimeout(() => {
 			this.saveTimer = null;
-			saveDocument(this.doc).then(
+			saveDocument($state.snapshot(this.doc) as BoardDocument).then(
 				() => (this.storageError = null),
 				(error) => (this.storageError = `cannot save the board: ${describe(error)}`)
 			);
@@ -183,7 +183,7 @@ export class BoardStore {
 		if (this.saveTimer) {
 			clearTimeout(this.saveTimer);
 			this.saveTimer = null;
-			await saveDocument(this.doc).catch(() => undefined);
+			await saveDocument($state.snapshot(this.doc) as BoardDocument).catch(() => undefined);
 		}
 	}
 }
